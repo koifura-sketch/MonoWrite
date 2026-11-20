@@ -3,435 +3,151 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MemoWrite - 全問筆記型・双方向単語学習</title>
+  <title>MemoWrite — 筆記型・記憶定着単語帳</title>
+  <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts: Inter & Noto Sans JP -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet" />
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Firebase SDK (Compat) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Inter"', '"Noto Sans JP"', 'sans-serif'],
+            mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'monospace'],
+          },
+          colors: {
+            brand: {
+              50: '#eef2ff',
+              100: '#e0e7ff',
+              500: '#6366f1',
+              600: '#4f46e5',
+              700: '#4338ca',
+            },
+            mastery: {
+              unlearned: '#94a3b8', // slate-400
+              weak: '#f59e0b',      // amber-500
+              learning: '#3b82f6',  // blue-500
+              mastered: '#10b981',  // emerald-500
+            }
+          },
+          animation: {
+            'shake': 'shake 0.35s cubic-bezier(.36,.07,.19,.97) both',
+            'pop': 'pop 0.25s ease-out forwards',
+          },
+          keyframes: {
+            shake: {
+              '10%, 90%': { transform: 'translate3d(-2px, 0, 0)' },
+              '20%, 80%': { transform: 'translate3d(4px, 0, 0)' },
+              '30%, 50%, 70%': { transform: 'translate3d(-6px, 0, 0)' },
+              '40%, 60%': { transform: 'translate3d(6px, 0, 0)' }
+            },
+            pop: {
+              '0%': { transform: 'scale(0.95)', opacity: '0.6' },
+              '100%': { transform: 'scale(1)', opacity: '1' }
+            }
+          }
+        }
+      }
+    };
+  </script>
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap');
     body {
       font-family: 'Inter', 'Noto Sans JP', sans-serif;
-      background-color: #f8fafc;
-      color: #0f172a;
+      -webkit-tap-highlight-color: transparent;
     }
-    .shake {
-      animation: shake 0.35s cubic-bezier(.36,.07,.19,.97) both;
+    /* Custom scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
     }
-    @keyframes shake {
-      10%, 90% { transform: translate3d(-2px, 0, 0); }
-      20%, 80% { transform: translate3d(4px, 0, 0); }
-      30%, 50%, 70% { transform: translate3d(-6px, 0, 0); }
-      40%, 60% { transform: translate3d(6px, 0, 0); }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(148, 163, 184, 0.4);
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(148, 163, 184, 0.6);
     }
   </style>
 </head>
-<body class="min-h-screen flex flex-col">
+<body class="bg-slate-50 text-slate-800 dark:bg-slate-950 dark:text-slate-100 min-h-screen flex flex-col transition-colors duration-200 selection:bg-indigo-500 selection:text-white">
 
-  <!-- ヘッダー -->
-  <header class="bg-white border-b border-slate-200 sticky top-0 z-30">
-    <div class="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between gap-2">
-      <div class="flex items-center gap-2.5 cursor-pointer" onclick="showView('dashboard')">
-        <div class="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold text-lg shadow-sm">
-          M
-        </div>
-        <div>
-          <h1 class="font-bold text-lg tracking-tight text-slate-900 leading-none">MemoWrite</h1>
-          <p class="text-[11px] text-slate-500 mt-0.5">全問筆記・記憶定着エンジン</p>
-        </div>
-      </div>
+  <!-- Toast Notification Container (Replaces alert) -->
+  <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none"></div>
 
-      <div class="flex items-center gap-2">
-        <!-- 同期ステータス -->
-        <div id="syncStatusBadge" class="hidden sm:flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">
-          <span id="syncDot" class="w-2 h-2 rounded-full bg-slate-400"></span>
-          <span id="syncText">未ログイン</span>
+  <!-- Top Navigation Header -->
+  <header class="sticky top-0 z-30 bg-white/85 dark:bg-slate-900/85 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+      <!-- Brand Logo -->
+      <button onclick="app.navigate('home')" class="flex items-center gap-2.5 group focus:outline-none">
+        <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-600 to-teal-500 flex items-center justify-center text-white shadow-md shadow-indigo-500/20 group-hover:scale-105 transition-transform">
+          <i data-lucide="pen-tool" class="w-5 h-5"></i>
         </div>
+        <div class="text-left">
+          <span class="font-extrabold text-lg tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-teal-600 dark:from-indigo-400 dark:to-teal-400">MemoWrite</span>
+          <span class="hidden sm:inline-block ml-1.5 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">筆記記憶帳</span>
+        </div>
+      </button>
 
-        <!-- アカウントボタン -->
-        <button onclick="openAuthModal()" id="accountBtn" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
-          <span id="accountBtnLabel">ログイン / 登録</span>
+      <!-- Header Actions -->
+      <div class="flex items-center gap-2 sm:gap-3">
+        <!-- Cloud Account Sync Button -->
+        <button id="header-account-btn" onclick="app.openAccountModal()" class="inline-flex items-center gap-2 px-3 py-2 text-xs sm:text-sm font-semibold rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/70 dark:border-indigo-800/70 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors" title="アカウントログイン・クラウド同期">
+          <span id="sync-status-dot" class="w-2 h-2 rounded-full bg-slate-400 shrink-0"></span>
+          <i data-lucide="user-check" class="w-4 h-4 shrink-0"></i>
+          <span id="header-account-label" class="max-w-[110px] truncate">ログイン / 同期</span>
         </button>
 
-        <!-- データ管理ボタン -->
-        <button onclick="openBackupModal()" class="p-2 rounded-lg text-slate-500 hover:bg-slate-100 transition" title="JSONバックアップ / 復元">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+        <!-- Backup / Restore Menu Button -->
+        <button onclick="app.openBackupModal()" class="inline-flex items-center gap-1.5 px-3 py-2 text-xs sm:text-sm font-medium rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" title="データのバックアップ・復元">
+          <i data-lucide="database" class="w-4 h-4"></i>
+          <span class="hidden md:inline">データ管理</span>
+        </button>
+
+        <!-- Dark Mode Toggle -->
+        <button onclick="app.toggleDarkMode()" class="p-2.5 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" aria-label="テーマ切り替え">
+          <i id="theme-icon-dark" data-lucide="moon" class="w-4 h-4 hidden dark:block"></i>
+          <i id="theme-icon-light" data-lucide="sun" class="w-4 h-4 block dark:hidden"></i>
         </button>
       </div>
     </div>
   </header>
 
-  <!-- メインコンテンツ -->
-  <main class="flex-1 max-w-5xl w-full mx-auto px-4 py-6">
-
-    <!-- ==================== 1. ダッシュボード（ブック一覧） ==================== -->
-    <section id="view-dashboard" class="space-y-6">
-      <!-- タブ切り替え（マイ単語帳 / 共通ライブラリ） -->
-      <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
-        <div class="flex gap-2">
-          <button onclick="switchDashboardTab('my')" id="tab-my" class="px-4 py-2 rounded-lg text-sm font-semibold bg-indigo-600 text-white shadow-sm transition">
-            マイ単語帳
-          </button>
-          <button onclick="switchDashboardTab('shared')" id="tab-shared" class="px-4 py-2 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-200/70 transition">
-            共通ライブラリ（みんなに共有）
-          </button>
-        </div>
-
-        <button onclick="openBookModal()" id="createBookBtn" class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold shadow-sm flex items-center gap-1.5 transition">
-          <span>＋</span> 新しいブックを作成
-        </button>
-      </div>
-
-      <!-- マイ単語帳リスト -->
-      <div id="myBooksContainer" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
-
-      <!-- 共通ライブラリリスト -->
-      <div id="sharedBooksContainer" class="hidden space-y-4">
-        <div class="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-900">
-          <p class="font-semibold">📚 共通ライブラリについて</p>
-          <p class="text-xs text-blue-700 mt-1">メンバーが共有した単語帳を「マイ単語帳にコピー」して、自分のアカウントで記憶度を記録しながら学習できます。自分のブックを共有するには、各ブックの編集画面から「みんなに共有」を押してください。</p>
-        </div>
-        <div id="sharedBooksGrid" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
-      </div>
-    </section>
-
-    <!-- ==================== 2. ブック詳細・単語編集 ==================== -->
-    <section id="view-book-detail" class="hidden space-y-6">
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <button onclick="showView('dashboard')" class="text-sm font-medium text-slate-600 hover:text-slate-900 flex items-center gap-1">
-          ← ブック一覧に戻る
-        </button>
-        <div class="flex flex-wrap gap-2">
-          <button onclick="shareCurrentBook()" class="px-3 py-1.5 rounded-lg bg-sky-50 text-sky-700 hover:bg-sky-100 text-xs font-semibold border border-sky-200 transition">
-            🌐 みんなに共有する
-          </button>
-          <button onclick="openEditBookModal()" class="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 text-xs font-semibold transition">
-            ✏️ ブック名編集
-          </button>
-          <button onclick="deleteCurrentBook()" class="px-3 py-1.5 rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-100 text-xs font-semibold transition">
-            🗑️ 削除
-          </button>
-        </div>
-      </div>
-
-      <!-- ブック情報ヘッダー＆学習開始カード -->
-      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div class="space-y-2">
-          <h2 id="detailBookTitle" class="text-2xl font-bold text-slate-900"></h2>
-          <p id="detailBookDesc" class="text-sm text-slate-500"></p>
-          <div class="flex items-center gap-4 pt-1 text-xs font-medium">
-            <span id="detailWordCount" class="text-slate-600">全 0 語</span>
-            <span id="detailMasteryRate" class="text-indigo-600 font-bold">定着率 0%</span>
-          </div>
-        </div>
-
-        <!-- 学習モード選択＆スタート -->
-        <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-          <select id="studyModeSelect" class="px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500">
-            <option value="mix">🔄 双方向ミックス（英⇔日）</option>
-            <option value="ja2en">🇯🇵→🇺🇸 日 → 英（スペル筆記）</option>
-            <option value="en2ja">🇺🇸→🇯🇵 英 → 日（意味筆記）</option>
-          </select>
-          <button onclick="startStudySession()" class="px-6 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm shadow-sm transition whitespace-nowrap">
-            ▶ 学習スタート
-          </button>
-        </div>
-      </div>
-
-      <!-- 単語追加フォーム＆一括追加ボタン -->
-      <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
-        <div class="flex items-center justify-between">
-          <h3 class="font-bold text-slate-800 text-sm">単語を追加する</h3>
-          <button onclick="openBulkModal()" class="px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100 text-xs font-semibold transition">
-            📋 テキスト・CSVから一括追加
-          </button>
-        </div>
-        <form onsubmit="addSingleWord(event)" class="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
-          <input type="text" id="newEnInput" placeholder="英単語 / 熟語 (例: achieve)" required class="sm:col-span-5 px-3.5 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-          <input type="text" id="newJaInput" placeholder="日本語の意味 (例: ～を達成する、成し遂げる)" required class="sm:col-span-5 px-3.5 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-          <button type="submit" class="sm:col-span-2 py-2 px-4 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-semibold text-sm transition">
-            追加
-          </button>
-        </form>
-      </div>
-
-      <!-- 登録単語一覧テーブル -->
-      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div class="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between bg-slate-50">
-          <span class="font-bold text-sm text-slate-700">登録単語リスト</span>
-          <input type="text" id="wordSearchInput" oninput="renderWordList()" placeholder="単語を検索..." class="px-3 py-1 rounded-lg border border-slate-300 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-        </div>
-        <div id="wordListContainer" class="divide-y divide-slate-100"></div>
-      </div>
-    </section>
-
-    <!-- ==================== 3. 筆記学習セッション画面 ==================== -->
-    <section id="view-study" class="hidden max-w-2xl mx-auto space-y-5">
-      <div class="flex items-center justify-between">
-        <button onclick="exitStudySession()" class="text-sm font-medium text-slate-500 hover:text-slate-800">
-          ✕ 学習を中断する
-        </button>
-        <div class="text-xs font-bold text-slate-600" id="studyProgressText">1 / 10</div>
-      </div>
-
-      <!-- プログレスバー -->
-      <div class="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
-        <div id="studyProgressBar" class="bg-indigo-600 h-full transition-all duration-300" style="width: 0%"></div>
-      </div>
-
-      <!-- 問題カード -->
-      <div id="studyCard" class="bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 shadow-sm space-y-6">
-        <div class="flex items-center justify-between">
-          <span id="studyDirectionBadge" class="px-2.5 py-1 rounded-md text-xs font-bold bg-indigo-50 text-indigo-700">
-            日 → 英
-          </span>
-          <span id="studyRevengeBadge" class="hidden px-2.5 py-1 rounded-md text-xs font-bold bg-amber-100 text-amber-800">
-            🔥 リベンジ出題
-          </span>
-        </div>
-
-        <div class="text-center py-4 space-y-2">
-          <p class="text-xs text-slate-400 font-medium">次の意味に合う言葉を筆記してください</p>
-          <h2 id="studyPromptText" class="text-2xl sm:text-3xl font-bold text-slate-900 break-words"></h2>
-          <p id="studyHintText" class="text-xs text-slate-400 font-mono h-4"></p>
-        </div>
-
-        <!-- 回答入力フォーム -->
-        <form onsubmit="submitStudyAnswer(event)" class="space-y-3">
-          <input
-            type="text"
-            id="studyAnswerInput"
-            autocomplete="off"
-            autocapitalize="off"
-            spellcheck="false"
-            placeholder="ここに入力して Enter..."
-            class="w-full px-4 py-3.5 text-center text-lg font-semibold rounded-xl border-2 border-slate-300 focus:border-indigo-600 focus:outline-none transition"
-          />
-          <div class="flex gap-2">
-            <button type="button" onclick="showStudyHint()" class="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-semibold transition">
-              💡 ヒント
-            </button>
-            <button type="submit" id="studySubmitBtn" class="flex-1 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm shadow-sm transition">
-              回答する (Enter)
-            </button>
-          </div>
-        </form>
-
-        <!-- 判定フィードバック＆打ち直しエリア -->
-        <div id="studyFeedbackBox" class="hidden rounded-xl p-4 space-y-3">
-          <div class="flex items-center justify-between">
-            <span id="feedbackTitle" class="font-bold text-base"></span>
-            <span id="feedbackSub" class="text-xs"></span>
-          </div>
-          <div class="bg-white/80 rounded-lg p-3 border border-slate-200/80">
-            <p class="text-xs text-slate-500">正解：</p>
-            <p id="feedbackCorrectAnswer" class="font-bold text-lg text-slate-900 mt-0.5"></p>
-          </div>
-
-          <!-- 不正解時の強制打ち直し -->
-          <div id="retypeContainer" class="hidden space-y-2 pt-1">
-            <p class="text-xs font-bold text-rose-700">✍️ 定着のため、上の正解を1回そのまま入力してください：</p>
-            <input
-              type="text"
-              id="retypeInput"
-              oninput="checkRetypeMatch()"
-              autocomplete="off"
-              autocapitalize="off"
-              spellcheck="false"
-              placeholder="正解をタイピング..."
-              class="w-full px-3.5 py-2.5 rounded-lg border-2 border-rose-300 bg-white text-center font-semibold focus:outline-none focus:border-rose-500"
-            />
-          </div>
-
-          <button id="nextQuestionBtn" onclick="nextStudyQuestion()" class="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm transition">
-            次の問題へ →
-          </button>
-        </div>
-      </div>
-    </section>
-
-    <!-- ==================== 4. 学習完了リザルト画面 ==================== -->
-    <section id="view-result" class="hidden max-w-lg mx-auto bg-white rounded-2xl border border-slate-200 p-8 shadow-sm text-center space-y-6">
-      <div class="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-3xl mx-auto">
-        🎉
-      </div>
-      <div>
-        <h2 class="text-2xl font-bold text-slate-900">セッション完了！</h2>
-        <p class="text-sm text-slate-500 mt-1">すべての問題を筆記でクリアしました。</p>
-      </div>
-      <div class="grid grid-cols-2 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
-        <div>
-          <p class="text-xs text-slate-500">一発正解数</p>
-          <p id="resultFirstTry" class="text-xl font-bold text-indigo-600 mt-0.5">0 / 0</p>
-        </div>
-        <div>
-          <p class="text-xs text-slate-500">ブック定着率</p>
-          <p id="resultMastery" class="text-xl font-bold text-emerald-600 mt-0.5">0%</p>
-        </div>
-      </div>
-      <div class="flex flex-col sm:flex-row gap-3">
-        <button onclick="startStudySession()" class="flex-1 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm transition">
-          もう一度学習する
-        </button>
-        <button onclick="openBookDetail(currentBookId)" class="flex-1 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-sm transition">
-          ブック詳細へ戻る
-        </button>
-      </div>
-    </section>
-
+  <!-- Main Content Container -->
+  <main id="app-main" class="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8">
+    <!-- Dynamic Views Rendered Here -->
   </main>
 
-  <!-- ==================== モーダル：ログイン / 新規アカウント作成 ==================== -->
-  <div id="authModal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-5">
-      <div class="flex items-center justify-between">
-        <h3 class="font-bold text-lg text-slate-900">アカウント同期（個人データ管理）</h3>
-        <button onclick="closeModal('authModal')" class="text-slate-400 hover:text-slate-600 text-xl">✕</button>
-      </div>
-
-      <p class="text-xs text-slate-600 leading-relaxed">
-        アカウント名とパスワードを設定すると、<strong>あなた専用の単語帳と記憶度</strong>がクラウドに自動保存され、別のスマホやPCから同じ情報でログインするだけで同期されます。
-      </p>
-
-      <div id="loggedInPanel" class="hidden bg-emerald-50 border border-emerald-200 rounded-xl p-4 space-y-3">
-        <div class="flex items-center justify-between">
-          <div>
-            <p class="text-xs text-emerald-700 font-semibold">現在ログイン中のアカウント</p>
-            <p id="currentAccountDisplay" class="text-base font-bold text-emerald-950 mt-0.5"></p>
-          </div>
-          <span class="px-2.5 py-1 rounded-full bg-emerald-600 text-white text-xs font-bold">自動同期中</span>
-        </div>
-        <button onclick="logoutAccount()" class="w-full py-2 rounded-lg bg-white border border-rose-200 text-rose-600 hover:bg-rose-50 text-xs font-bold transition">
-          ログアウトする
-        </button>
-      </div>
-
-      <form id="authForm" onsubmit="handleAuthSubmit(event)" class="space-y-3.5">
-        <div>
-          <label class="block text-xs font-bold text-slate-700 mb-1">アカウント名（半角英数字・日本語可）</label>
-          <input type="text" id="authUsername" required placeholder="例: taro_okinawa" class="w-full px-3.5 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-        </div>
-        <div>
-          <label class="block text-xs font-bold text-slate-700 mb-1">パスワード（合言葉）</label>
-          <input type="password" id="authPassword" required placeholder="例: 1234abcd" class="w-full px-3.5 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-          <p class="text-[11px] text-slate-400 mt-1">※学習データ識別用です。銀行や他サービスと同じ重要なパスワードは避けてください。</p>
-        </div>
-
-        <label class="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
-          <input type="checkbox" id="rememberAccountCheck" checked class="rounded text-indigo-600" />
-          次回から自動でログインしたままにする
-        </label>
-
-        <!-- 詳細設定（Firebase Realtime Database URL変更用） -->
-        <details class="text-xs text-slate-500 border-t border-slate-100 pt-2">
-          <summary class="cursor-pointer font-medium hover:text-slate-700">詳細設定（Firebase URLの確認・変更）</summary>
-          <div class="mt-2 space-y-1.5">
-            <label class="block text-[11px] text-slate-500">Realtime Database URL</label>
-            <input type="text" id="customDbUrlInput" class="w-full px-2.5 py-1.5 rounded border border-slate-300 text-xs font-mono" />
-          </div>
-        </details>
-
-        <button type="submit" class="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm shadow-sm transition">
-          このアカウントで同期開始
-        </button>
-      </form>
+  <!-- Generic Modal Backdrop -->
+  <div id="modal-backdrop" class="fixed inset-0 z-40 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center p-4 transition-opacity">
+    <div id="modal-content" class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto animate-pop">
+      <!-- Dynamic Modal Content -->
     </div>
   </div>
-
-  <!-- ==================== モーダル：ブック作成 / 編集 ==================== -->
-  <div id="bookModal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
-      <div class="flex items-center justify-between">
-        <h3 id="bookModalTitle" class="font-bold text-lg text-slate-900">新しいブックを作成</h3>
-        <button onclick="closeModal('bookModal')" class="text-slate-400 hover:text-slate-600 text-xl">✕</button>
-      </div>
-      <form onsubmit="saveBookForm(event)" class="space-y-4">
-        <div>
-          <label class="block text-xs font-bold text-slate-700 mb-1">ブック名</label>
-          <input type="text" id="bookTitleInput" required placeholder="例: システム英単語 0501-0600" class="w-full px-3.5 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-        </div>
-        <div>
-          <label class="block text-xs font-bold text-slate-700 mb-1">メモ・説明（任意）</label>
-          <input type="text" id="bookDescInput" placeholder="例: 定期テスト範囲・毎日20語ずつ" class="w-full px-3.5 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-        </div>
-        <div class="flex justify-end gap-2 pt-2">
-          <button type="button" onclick="closeModal('bookModal')" class="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100">キャンセル</button>
-          <button type="submit" class="px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold">保存する</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- ==================== モーダル：一括追加 ==================== -->
-  <div id="bulkModal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl space-y-4">
-      <div class="flex items-center justify-between">
-        <h3 class="font-bold text-lg text-slate-900">単語の一括追加</h3>
-        <button onclick="closeModal('bulkModal')" class="text-slate-400 hover:text-slate-600 text-xl">✕</button>
-      </div>
-      <p class="text-xs text-slate-600">
-        1行につき1単語、<strong>カンマ（,）</strong> または <strong>タブ区切り（Excel/スプレッドシートのコピペ）</strong> で貼り付けてください。
-      </p>
-      <textarea id="bulkTextarea" rows="8" placeholder="hurt, ～を傷つける&#10;aid, 援助&#10;recover, ～を取り戻す" class="w-full p-3 rounded-xl border border-slate-300 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
-      <div class="flex justify-end gap-2">
-        <button onclick="closeModal('bulkModal')" class="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100">キャンセル</button>
-        <button onclick="processBulkImport()" class="px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold">まとめて追加する</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- ==================== モーダル：単語個別編集 ==================== -->
-  <div id="editWordModal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
-      <div class="flex items-center justify-between">
-        <h3 class="font-bold text-lg text-slate-900">単語を編集</h3>
-        <button onclick="closeModal('editWordModal')" class="text-slate-400 hover:text-slate-600 text-xl">✕</button>
-      </div>
-      <form onsubmit="saveEditedWord(event)" class="space-y-4">
-        <input type="hidden" id="editWordId" />
-        <div>
-          <label class="block text-xs font-bold text-slate-700 mb-1">英単語 / 熟語</label>
-          <input type="text" id="editWordEn" required class="w-full px-3.5 py-2 rounded-lg border border-slate-300 text-sm" />
-        </div>
-        <div>
-          <label class="block text-xs font-bold text-slate-700 mb-1">日本語の意味（複数ある場合は「、」で区切る）</label>
-          <input type="text" id="editWordJa" required class="w-full px-3.5 py-2 rounded-lg border border-slate-300 text-sm" />
-        </div>
-        <div class="flex justify-end gap-2">
-          <button type="button" onclick="closeModal('editWordModal')" class="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100">キャンセル</button>
-          <button type="submit" class="px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold">更新する</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- ==================== モーダル：JSONバックアップ ==================== -->
-  <div id="backupModal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
-      <div class="flex items-center justify-between">
-        <h3 class="font-bold text-lg text-slate-900">ローカルデータのバックアップ / 復元</h3>
-        <button onclick="closeModal('backupModal')" class="text-slate-400 hover:text-slate-600 text-xl">✕</button>
-      </div>
-      <p class="text-xs text-slate-600">現在の全ブック・記憶度データをJSONファイルとして保存したり、過去のバックアップから復元できます。</p>
-      <div class="space-y-3 pt-2">
-        <button onclick="exportJsonBackup()" class="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-bold transition">
-          ⬇ バックアップをJSONでダウンロード
-        </button>
-        <label class="block w-full py-2.5 rounded-xl border-2 border-dashed border-slate-300 hover:border-indigo-500 text-center text-sm font-semibold text-slate-700 cursor-pointer transition">
-          ⬆ JSONファイルを選択して復元
-          <input type="file" accept=".json" onchange="importJsonBackup(event)" class="hidden" />
-        </label>
-      </div>
-    </div>
-  </div>
-
-  <!-- Firebase SDK (Compat版で単一HTMLから即動作) -->
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 
   <script>
-    // =========================================================================
-    // 1. Firebase 初期設定（monowrite-3b828）
-    // =========================================================================
-    const DEFAULT_FIREBASE_CONFIG = {
+    /**
+     * MemoWrite - Monoxer-inspired Typing Vocabulary App
+     * Data Structure, Per-User Cloud Sync & State Management
+     */
+    const STORAGE_KEY = 'memowrite_v1_data';
+    const THEME_KEY = 'memowrite_v1_theme';
+    const ACCOUNT_KEY = 'memowrite_v1_account';
+    const DBURL_KEY = 'memowrite_v1_dburl';
+
+    // Pre-configured Firebase Project (monowrite-3b828)
+    const FIREBASE_CONFIG = {
       apiKey: "AIzaSyBYpUTtUBoiSzAdx52GY1ouv_v1_lgChgo",
       authDomain: "monowrite-3b828.firebaseapp.com",
       projectId: "monowrite-3b828",
@@ -441,842 +157,1765 @@
       databaseURL: "https://monowrite-3b828-default-rtdb.firebaseio.com"
     };
 
-    const STORAGE_KEY_BOOKS = "memowrite_books_v2";
-    const STORAGE_KEY_AUTH = "memowrite_account_v2";
-    const STORAGE_KEY_DBURL = "memowrite_dburl_v2";
-
-    let db = null;
-    let userRef = null;
-    let sharedRef = null;
-    let currentAccount = null; // { username, userKey }
-    let books = [];
-    let sharedBooks = [];
-    let currentBookId = null;
-    let isEditingBook = false;
-    let isRemoteUpdating = false;
-
-    // 学習セッション状態
-    let studyQueue = [];
-    let currentStudyIndex = 0;
-    let firstTryCorrectCount = 0;
-    let totalInitialQuestions = 0;
-    let currentQuestionFailed = false;
-
-    // =========================================================================
-    // 2. 初期化・Firebase接続・アカウント同期
-    // =========================================================================
-    window.addEventListener("DOMContentLoaded", () => {
-      // ローカルデータ読み込み
-      const savedBooks = localStorage.getItem(STORAGE_KEY_BOOKS);
-      if (savedBooks) {
-        try {
-          books = JSON.parse(savedBooks);
-        } catch (e) {
-          books = getDefaultSampleBooks();
-        }
-      } else {
-        books = getDefaultSampleBooks();
-        saveLocalBooks();
-      }
-
-      // Firebase 初期化
-      initFirebase();
-
-      // 自動ログイン確認
-      const savedAuth = localStorage.getItem(STORAGE_KEY_AUTH);
-      if (savedAuth) {
-        try {
-          const parsed = JSON.parse(savedAuth);
-          if (parsed && parsed.username && parsed.userKey) {
-            connectUserAccount(parsed.username, parsed.userKey, false);
-          }
-        } catch (e) {}
-      }
-
-      renderDashboard();
-    });
-
-    function getActiveDatabaseURL() {
-      return localStorage.getItem(STORAGE_KEY_DBURL) || DEFAULT_FIREBASE_CONFIG.databaseURL;
-    }
-
-    function initFirebase() {
-      try {
-        const config = {
-          ...DEFAULT_FIREBASE_CONFIG,
-          databaseURL: getActiveDatabaseURL()
-        };
-        if (!firebase.apps.length) {
-          firebase.initializeApp(config);
-        }
-        db = firebase.database();
-
-        // 共通ライブラリのリアルタイム購読
-        sharedRef = db.ref("memowrite_shared_books");
-        sharedRef.on("value", (snapshot) => {
-          const val = snapshot.val();
-          sharedBooks = val ? Object.values(val) : [];
-          renderSharedBooks();
-        });
-      } catch (err) {
-        console.error("Firebase init error:", err);
-        updateSyncBadge("error", "オフラインモード");
-      }
-    }
-
-    // アカウント名＋パスワードから安全な一意キーを生成
-    async function generateUserKey(username, password) {
-      const raw = `${username.trim().toLowerCase()}::${password}`;
-      const encoder = new TextEncoder();
-      const data = encoder.encode(raw);
-      const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-      const hashArray = Array.from(new Uint8Array(hashBuffer));
-      return hashArray.map(b => b.toString(16).padStart(2, "0")).join("").slice(0, 32);
-    }
-
-    async function handleAuthSubmit(e) {
-      e.preventDefault();
-      const username = document.getElementById("authUsername").value.trim();
-      const password = document.getElementById("authPassword").value;
-      const remember = document.getElementById("rememberAccountCheck").checked;
-      const customUrl = document.getElementById("customDbUrlInput").value.trim();
-
-      if (!username || !password) return;
-
-      // Database URL が変更されていたら再初期化
-      if (customUrl && customUrl !== getActiveDatabaseURL()) {
-        localStorage.setItem(STORAGE_KEY_DBURL, customUrl.replace(/\/$/, ""));
-        location.reload();
-        return;
-      }
-
-      const userKey = await generateUserKey(username, password);
-      if (remember) {
-        localStorage.setItem(STORAGE_KEY_AUTH, JSON.stringify({ username, userKey }));
-      } else {
-        localStorage.removeItem(STORAGE_KEY_AUTH);
-      }
-
-      connectUserAccount(username, userKey, true);
-      closeModal("authModal");
-    }
-
-    function connectUserAccount(username, userKey, isManualLogin) {
-      currentAccount = { username, userKey };
-      document.getElementById("accountBtnLabel").textContent = username;
-      updateSyncBadge("syncing", "同期接続中...");
-
-      if (!db) {
-        updateSyncBadge("error", "DB未接続（ローカル保存）");
-        return;
-      }
-
-      if (userRef) userRef.off();
-      userRef = db.ref(`memowrite_users/${userKey}/books`);
-
-      // 初回読み取り＆リアルタイム監視
-      userRef.on("value", (snapshot) => {
-        const cloudData = snapshot.val();
-        if (cloudData && Array.isArray(cloudData)) {
-          isRemoteUpdating = true;
-          books = cloudData;
-          saveLocalBooks();
-          renderDashboard();
-          if (currentBookId) renderBookDetail();
-          isRemoteUpdating = false;
-        } else if (isManualLogin) {
-          // クラウドにまだデータがない新規アカウントなら現在のローカルデータを初回アップロード
-          pushBooksToCloud();
-        }
-        updateSyncBadge("connected", `同期中: ${username}`);
-      }, (error) => {
-        console.error("Sync error:", error);
-        updateSyncBadge("error", "同期エラー（DBルール確認）");
-      });
-    }
-
-    function logoutAccount() {
-      if (userRef) userRef.off();
-      userRef = null;
-      currentAccount = null;
-      localStorage.removeItem(STORAGE_KEY_AUTH);
-      document.getElementById("accountBtnLabel").textContent = "ログイン / 登録";
-      updateSyncBadge("offline", "未ログイン");
-      closeModal("authModal");
-    }
-
-    function updateSyncBadge(status, text) {
-      const dot = document.getElementById("syncDot");
-      const label = document.getElementById("syncText");
-      label.textContent = text;
-      dot.className = "w-2 h-2 rounded-full ";
-      if (status === "connected") dot.className += "bg-emerald-500";
-      else if (status === "syncing") dot.className += "bg-amber-400 animate-pulse";
-      else if (status === "error") dot.className += "bg-rose-500";
-      else dot.className += "bg-slate-400";
-    }
-
-    function saveAllData() {
-      saveLocalBooks();
-      if (!isRemoteUpdating) {
-        pushBooksToCloud();
-      }
-    }
-
-    function saveLocalBooks() {
-      localStorage.setItem(STORAGE_KEY_BOOKS, JSON.stringify(books));
-    }
-
-    function pushBooksToCloud() {
-      if (userRef && currentAccount) {
-        updateSyncBadge("syncing", "保存中...");
-        userRef.set(books)
-          .then(() => updateSyncBadge("connected", `同期中: ${currentAccount.username}`))
-          .catch(() => updateSyncBadge("error", "クラウド保存失敗"));
-      }
-    }
-
-    // =========================================================================
-    // 3. サンプルデータ＆ダッシュボード描画
-    // =========================================================================
-    function getDefaultSampleBooks() {
-      return [
+    // Default sample decks for immediate testing
+    const DEFAULT_DATA = {
+      books: [
         {
-          id: "book_sample_1",
-          title: "サンプル：基本重要英単語",
-          description: "まずはここから！筆記タイピングの練習用ブックです。",
+          id: 'book_sample_1',
+          title: 'システム英単語・基礎コア',
+          description: '大学受験・日常頻出の基本動詞・名詞セット。日⇔英の双方向筆記で確実に定着させましょう。',
+          color: 'indigo',
+          updatedAt: Date.now(),
           words: [
-            { id: "w1", en: "achieve", ja: "～を達成する、成し遂げる", mastery: 0 },
-            { id: "w2", en: "improve", ja: "～を向上させる、改善する", mastery: 0 },
-            { id: "w3", en: "environment", ja: "環境", mastery: 0 },
-            { id: "w4", en: "opportunity", ja: "機会、チャンス", mastery: 0 },
-            { id: "w5", en: "encourage", ja: "～を励ます、促す", mastery: 0 }
+            { id: 'w1', en: 'accomplish', ja: '成し遂げる、達成する', masteryEnToJa: 100, masteryJaToEn: 80, streak: 3 },
+            { id: 'w2', en: 'determine', ja: '決定する、決心する', masteryEnToJa: 80, masteryJaToEn: 40, streak: 1 },
+            { id: 'w3', en: 'maintain', ja: '維持する、主張する', masteryEnToJa: 60, masteryJaToEn: 0, streak: 0 },
+            { id: 'w4', en: 'significant', ja: '重要な、著しい', masteryEnToJa: 40, masteryJaToEn: 0, streak: 0 },
+            { id: 'w5', en: 'environment', ja: '環境', masteryEnToJa: 100, masteryJaToEn: 100, streak: 5 },
+            { id: 'w6', en: 'opportunity', ja: '機会、チャンス', masteryEnToJa: 20, masteryJaToEn: 0, streak: 0 },
+            { id: 'w7', en: 'essential', ja: '不可欠な、本質的な', masteryEnToJa: 0, masteryJaToEn: 0, streak: 0 },
+            { id: 'w8', en: 'persuade', ja: '説得する', masteryEnToJa: 0, masteryJaToEn: 0, streak: 0 },
+          ]
+        },
+        {
+          id: 'book_sample_2',
+          title: 'ビジネス・IT必須英単語',
+          description: '開発現場やミーティングでそのまま使える実践的な語彙ブック。',
+          color: 'teal',
+          updatedAt: Date.now() - 3600000,
+          words: [
+            { id: 'b1', en: 'implement', ja: '実装する、実行する', masteryEnToJa: 80, masteryJaToEn: 60, streak: 2 },
+            { id: 'b2', en: 'alternative', ja: '代替案、代わりの', masteryEnToJa: 40, masteryJaToEn: 20, streak: 1 },
+            { id: 'b3', en: 'efficient', ja: '効率的な', masteryEnToJa: 100, masteryJaToEn: 80, streak: 3 },
+            { id: 'b4', en: 'collaborate', ja: '協力する、共同作業する', masteryEnToJa: 0, masteryJaToEn: 0, streak: 0 },
+            { id: 'b5', en: 'requirement', ja: '要件、必要条件', masteryEnToJa: 20, masteryJaToEn: 0, streak: 0 },
           ]
         }
-      ];
-    }
+      ]
+    };
 
-    function switchDashboardTab(tab) {
-      const myTab = document.getElementById("tab-my");
-      const sharedTab = document.getElementById("tab-shared");
-      const myContainer = document.getElementById("myBooksContainer");
-      const sharedContainer = document.getElementById("sharedBooksContainer");
+    class MemoWriteApp {
+      constructor() {
+        this.state = this.loadState();
+        this.view = 'home'; // 'home' | 'book' | 'study'
+        this.activeBookId = null;
+        this.searchQuery = '';
+        this.studySession = null;
 
-      if (tab === "my") {
-        myTab.className = "px-4 py-2 rounded-lg text-sm font-semibold bg-indigo-600 text-white shadow-sm transition";
-        sharedTab.className = "px-4 py-2 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-200/70 transition";
-        myContainer.classList.remove("hidden");
-        sharedContainer.classList.add("hidden");
-      } else {
-        sharedTab.className = "px-4 py-2 rounded-lg text-sm font-semibold bg-indigo-600 text-white shadow-sm transition";
-        myTab.className = "px-4 py-2 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-200/70 transition";
-        sharedContainer.classList.remove("hidden");
-        myContainer.classList.add("hidden");
-        renderSharedBooks();
-      }
-    }
+        // Cloud Sync Properties
+        this.db = null;
+        this.userRef = null;
+        this.account = null; // { username, userKey }
+        this.isApplyingRemote = false;
 
-    function calculateMasteryRate(book) {
-      if (!book.words || book.words.length === 0) return 0;
-      const totalScore = book.words.reduce((acc, w) => acc + Math.min(w.mastery || 0, 3), 0);
-      return Math.round((totalScore / (book.words.length * 3)) * 100);
-    }
-
-    function renderDashboard() {
-      const container = document.getElementById("myBooksContainer");
-      if (!books || books.length === 0) {
-        container.innerHTML = `
-          <div class="col-span-full bg-white rounded-2xl border border-dashed border-slate-300 p-10 text-center space-y-3">
-            <p class="text-slate-500 text-sm">まだ単語帳がありません。「＋ 新しいブックを作成」から作ってみましょう！</p>
-          </div>
-        `;
-        return;
+        this.initTheme();
+        this.initFirebase();
+        this.restoreSavedAccount();
+        this.render();
       }
 
-      container.innerHTML = books.map(book => {
-        const rate = calculateMasteryRate(book);
-        const count = book.words ? book.words.length : 0;
-        return `
-          <div onclick="openBookDetail('${book.id}')" class="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-indigo-300 cursor-pointer transition flex flex-col justify-between space-y-4">
-            <div>
-              <div class="flex items-start justify-between gap-2">
-                <h3 class="font-bold text-lg text-slate-900 line-clamp-1">${escapeHtml(book.title)}</h3>
-                <span class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 shrink-0">
-                  ${count} 語
-                </span>
-              </div>
-              <p class="text-xs text-slate-500 mt-1 line-clamp-2">${escapeHtml(book.description || "説明なし")}</p>
-            </div>
-
-            <div class="space-y-1.5">
-              <div class="flex justify-between text-xs font-semibold">
-                <span class="text-slate-500">記憶定着度</span>
-                <span class="text-indigo-600">${rate}%</span>
-              </div>
-              <div class="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                <div class="bg-indigo-600 h-full rounded-full transition-all" style="width: ${rate}%"></div>
-              </div>
-            </div>
-          </div>
-        `;
-      }).join("");
-    }
-
-    function renderSharedBooks() {
-      const grid = document.getElementById("sharedBooksGrid");
-      if (!sharedBooks || sharedBooks.length === 0) {
-        grid.innerHTML = `<div class="col-span-full text-center py-8 text-sm text-slate-500">まだ共有されたブックはありません。</div>`;
-        return;
+      // ==========================================
+      // FIREBASE & PER-ACCOUNT CLOUD SYNC
+      // ==========================================
+      getDatabaseURL() {
+        return localStorage.getItem(DBURL_KEY) || FIREBASE_CONFIG.databaseURL;
       }
 
-      grid.innerHTML = sharedBooks.map(sb => `
-        <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs flex flex-col justify-between space-y-4">
-          <div>
-            <div class="flex items-center justify-between gap-2">
-              <h3 class="font-bold text-base text-slate-900">${escapeHtml(sb.title)}</h3>
-              <span class="text-xs font-bold text-sky-700 bg-sky-50 px-2.5 py-0.5 rounded-full">${(sb.words || []).length} 語</span>
-            </div>
-            <p class="text-xs text-slate-500 mt-1">${escapeHtml(sb.description || "")}</p>
-            <p class="text-[11px] text-slate-400 mt-2">作成者: ${escapeHtml(sb.author || "メンバー")}</p>
-          </div>
-          <button onclick="copySharedBook('${sb.sharedId}')" class="w-full py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold transition">
-            ＋ マイ単語帳にコピーして学習する
-          </button>
-        </div>
-      `).join("");
-    }
-
-    function shareCurrentBook() {
-      const book = books.find(b => b.id === currentBookId);
-      if (!book || !book.words || book.words.length === 0) {
-        alert("単語が1語以上登録されているブックのみ共有できます。");
-        return;
-      }
-      if (!sharedRef) {
-        alert("クラウドに接続されていないため共有できません。");
-        return;
-      }
-      const sharedId = "shared_" + Date.now();
-      const payload = {
-        sharedId,
-        title: book.title,
-        description: book.description || "",
-        author: currentAccount ? currentAccount.username : "ゲストユーザー",
-        words: book.words.map(w => ({ en: w.en, ja: w.ja }))
-      };
-      sharedRef.child(sharedId).set(payload)
-        .then(() => alert("「共通ライブラリ」にブックを公開しました！他のメンバーもコピーして使えます。"))
-        .catch(() => alert("共有に失敗しました。"));
-    }
-
-    function copySharedBook(sharedId) {
-      const sb = sharedBooks.find(b => b.sharedId === sharedId);
-      if (!sb) return;
-      const newBook = {
-        id: "book_" + Date.now(),
-        title: sb.title,
-        description: sb.description,
-        words: (sb.words || []).map((w, idx) => ({
-          id: "w_" + Date.now() + "_" + idx,
-          en: w.en,
-          ja: w.ja,
-          mastery: 0
-        }))
-      };
-      books.unshift(newBook);
-      saveAllData();
-      switchDashboardTab("my");
-      renderDashboard();
-      alert(`「${sb.title}」をマイ単語帳にコピーしました！`);
-    }
-
-    // =========================================================================
-    // 4. ブック操作・単語CRUD・一括インポート
-    // =========================================================================
-    function showView(viewName) {
-      ["dashboard", "book-detail", "study", "result"].forEach(v => {
-        document.getElementById(`view-${v}`).classList.add("hidden");
-      });
-      document.getElementById(`view-${viewName}`).classList.remove("hidden");
-      if (viewName === "dashboard") renderDashboard();
-    }
-
-    function openBookModal() {
-      isEditingBook = false;
-      document.getElementById("bookModalTitle").textContent = "新しいブックを作成";
-      document.getElementById("bookTitleInput").value = "";
-      document.getElementById("bookDescInput").value = "";
-      document.getElementById("bookModal").classList.remove("hidden");
-    }
-
-    function openEditBookModal() {
-      const book = books.find(b => b.id === currentBookId);
-      if (!book) return;
-      isEditingBook = true;
-      document.getElementById("bookModalTitle").textContent = "ブック情報を編集";
-      document.getElementById("bookTitleInput").value = book.title;
-      document.getElementById("bookDescInput").value = book.description || "";
-      document.getElementById("bookModal").classList.remove("hidden");
-    }
-
-    function saveBookForm(e) {
-      e.preventDefault();
-      const title = document.getElementById("bookTitleInput").value.trim();
-      const description = document.getElementById("bookDescInput").value.trim();
-      if (!title) return;
-
-      if (isEditingBook) {
-        const book = books.find(b => b.id === currentBookId);
-        if (book) {
-          book.title = title;
-          book.description = description;
-        }
-        saveAllData();
-        renderBookDetail();
-      } else {
-        const newBook = {
-          id: "book_" + Date.now(),
-          title,
-          description,
-          words: []
-        };
-        books.unshift(newBook);
-        saveAllData();
-        openBookDetail(newBook.id);
-      }
-      closeModal("bookModal");
-    }
-
-    function deleteCurrentBook() {
-      if (!confirm("このブックと登録された単語をすべて削除しますか？")) return;
-      books = books.filter(b => b.id !== currentBookId);
-      saveAllData();
-      showView("dashboard");
-    }
-
-    function openBookDetail(bookId) {
-      currentBookId = bookId;
-      showView("book-detail");
-      renderBookDetail();
-    }
-
-    function renderBookDetail() {
-      const book = books.find(b => b.id === currentBookId);
-      if (!book) return showView("dashboard");
-
-      document.getElementById("detailBookTitle").textContent = book.title;
-      document.getElementById("detailBookDesc").textContent = book.description || "";
-      document.getElementById("detailWordCount").textContent = `全 ${(book.words || []).length} 語`;
-      document.getElementById("detailMasteryRate").textContent = `定着率 ${calculateMasteryRate(book)}%`;
-      renderWordList();
-    }
-
-    function renderWordList() {
-      const book = books.find(b => b.id === currentBookId);
-      const container = document.getElementById("wordListContainer");
-      const query = (document.getElementById("wordSearchInput").value || "").toLowerCase();
-
-      if (!book || !book.words || book.words.length === 0) {
-        container.innerHTML = `<div class="p-8 text-center text-sm text-slate-400">単語がまだ登録されていません。上のフォームから追加してください。</div>`;
-        return;
-      }
-
-      const filtered = book.words.filter(w =>
-        w.en.toLowerCase().includes(query) || w.ja.toLowerCase().includes(query)
-      );
-
-      container.innerHTML = filtered.map(w => {
-        const badge = getMasteryBadge(w.mastery || 0);
-        return `
-          <div class="px-5 py-3 flex items-center justify-between gap-3 hover:bg-slate-50 transition">
-            <div class="min-w-0 flex-1 grid grid-cols-1 sm:grid-cols-2 gap-1 sm:gap-4">
-              <p class="font-bold text-slate-900 text-sm truncate">${escapeHtml(w.en)}</p>
-              <p class="text-slate-600 text-sm truncate">${escapeHtml(w.ja)}</p>
-            </div>
-            <div class="flex items-center gap-2 shrink-0">
-              ${badge}
-              <button onclick="openEditWordModal('${w.id}')" class="p-1.5 text-slate-400 hover:text-indigo-600 text-xs" title="編集">✏️</button>
-              <button onclick="deleteWord('${w.id}')" class="p-1.5 text-slate-400 hover:text-rose-600 text-xs" title="削除">🗑️</button>
-            </div>
-          </div>
-        `;
-      }).join("");
-    }
-
-    function getMasteryBadge(level) {
-      if (level >= 3) return `<span class="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-100 text-emerald-700">定着済み</span>`;
-      if (level === 2) return `<span class="px-2 py-0.5 rounded text-[11px] font-bold bg-indigo-100 text-indigo-700">記憶中</span>`;
-      if (level === 1) return `<span class="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-100 text-amber-700">うろ覚え</span>`;
-      return `<span class="px-2 py-0.5 rounded text-[11px] font-bold bg-slate-100 text-slate-500">未学習</span>`;
-    }
-
-    function addSingleWord(e) {
-      e.preventDefault();
-      const en = document.getElementById("newEnInput").value.trim();
-      const ja = document.getElementById("newJaInput").value.trim();
-      if (!en || !ja) return;
-
-      const book = books.find(b => b.id === currentBookId);
-      if (!book) return;
-      if (!book.words) book.words = [];
-
-      book.words.push({
-        id: "w_" + Date.now(),
-        en,
-        ja,
-        mastery: 0
-      });
-
-      document.getElementById("newEnInput").value = "";
-      document.getElementById("newJaInput").value = "";
-      document.getElementById("newEnInput").focus();
-
-      saveAllData();
-      renderBookDetail();
-    }
-
-    function openBulkModal() {
-      document.getElementById("bulkTextarea").value = "";
-      document.getElementById("bulkModal").classList.remove("hidden");
-    }
-
-    function processBulkImport() {
-      const raw = document.getElementById("bulkTextarea").value;
-      const lines = raw.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-      const book = books.find(b => b.id === currentBookId);
-      if (!book) return;
-      if (!book.words) book.words = [];
-
-      let added = 0;
-      lines.forEach((line, i) => {
-        let parts = line.includes("\t") ? line.split("\t") : line.split(",");
-        if (parts.length >= 2) {
-          const en = parts[0].trim();
-          const ja = parts.slice(1).join(",").trim();
-          if (en && ja) {
-            book.words.push({
-              id: `w_${Date.now()}_${i}`,
-              en,
-              ja,
-              mastery: 0
-            });
-            added++;
+      initFirebase() {
+        try {
+          if (typeof firebase === 'undefined') return;
+          const config = {
+            ...FIREBASE_CONFIG,
+            databaseURL: this.getDatabaseURL()
+          };
+          if (!firebase.apps.length) {
+            firebase.initializeApp(config);
           }
+          this.db = firebase.database();
+        } catch (e) {
+          console.error('Firebase initialization failed:', e);
+          this.updateSyncUI('error', '未接続');
         }
-      });
-
-      saveAllData();
-      closeModal("bulkModal");
-      renderBookDetail();
-      alert(`${added} 語の単語を一括追加しました！`);
-    }
-
-    function openEditWordModal(wordId) {
-      const book = books.find(b => b.id === currentBookId);
-      const word = book?.words?.find(w => w.id === wordId);
-      if (!word) return;
-      document.getElementById("editWordId").value = word.id;
-      document.getElementById("editWordEn").value = word.en;
-      document.getElementById("editWordJa").value = word.ja;
-      document.getElementById("editWordModal").classList.remove("hidden");
-    }
-
-    function saveEditedWord(e) {
-      e.preventDefault();
-      const wordId = document.getElementById("editWordId").value;
-      const book = books.find(b => b.id === currentBookId);
-      const word = book?.words?.find(w => w.id === wordId);
-      if (!word) return;
-
-      word.en = document.getElementById("editWordEn").value.trim();
-      word.ja = document.getElementById("editWordJa").value.trim();
-      saveAllData();
-      closeModal("editWordModal");
-      renderBookDetail();
-    }
-
-    function deleteWord(wordId) {
-      const book = books.find(b => b.id === currentBookId);
-      if (!book) return;
-      book.words = book.words.filter(w => w.id !== wordId);
-      saveAllData();
-      renderBookDetail();
-    }
-
-    // =========================================================================
-    // 5. 全問筆記学習エンジン（双方向・正誤判定・打ち直し・リベンジ）
-    // =========================================================================
-    function startStudySession() {
-      const book = books.find(b => b.id === currentBookId);
-      if (!book || !book.words || book.words.length === 0) {
-        alert("学習する単語がありません。先に単語を追加してください。");
-        return;
       }
 
-      const mode = document.getElementById("studyModeSelect").value;
-      // 記憶度が低い単語を優先しつつシャッフル
-      const sorted = [...book.words].sort((a, b) => (a.mastery || 0) - (b.mastery || 0) + (Math.random() - 0.5));
-      const targetWords = sorted.slice(0, 20); // 1セッション最大20問
+      async deriveUserKey(username, password) {
+        const normalized = `${username.trim().toLowerCase()}::${password}`;
+        const buf = new TextEncoder().encode(normalized);
+        const hash = await crypto.subtle.digest('SHA-256', buf);
+        return Array.from(new Uint8Array(hash))
+          .map(b => b.toString(16).padStart(2, '0'))
+          .join('')
+          .slice(0, 32);
+      }
 
-      studyQueue = targetWords.map(w => {
-        let dir = mode;
-        if (mode === "mix") {
-          dir = Math.random() < 0.5 ? "ja2en" : "en2ja";
+      restoreSavedAccount() {
+        try {
+          const raw = localStorage.getItem(ACCOUNT_KEY);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed && parsed.username && parsed.userKey) {
+              this.connectAccount(parsed.username, parsed.userKey, false);
+              return;
+            }
+          }
+        } catch (e) {}
+        this.updateSyncUI('offline', 'ログイン / 同期');
+      }
+
+      connectAccount(username, userKey, isFreshLogin = false) {
+        this.account = { username, userKey };
+        this.updateSyncUI('syncing', `${username} (同期中...)`);
+
+        if (!this.db) {
+          this.updateSyncUI('error', `${username} (DB未接続)`);
+          return;
         }
-        return {
-          wordId: w.id,
-          en: w.en,
-          ja: w.ja,
-          direction: dir,
-          isRevenge: false
+
+        if (this.userRef) {
+          this.userRef.off();
+        }
+
+        this.userRef = this.db.ref(`memowrite_users/${userKey}/state`);
+        this.userRef.on('value', (snapshot) => {
+          const remoteState = snapshot.val();
+          if (remoteState && Array.isArray(remoteState.books)) {
+            this.isApplyingRemote = true;
+            // Ensure words array exists on each book (Firebase drops empty arrays)
+            remoteState.books = remoteState.books.map(b => ({
+              ...b,
+              words: Array.isArray(b.words) ? b.words : []
+            }));
+            this.state = remoteState;
+            this.saveLocalOnly();
+            // Do not interrupt active typing input while studying
+            if (this.view !== 'study') {
+              this.render();
+            }
+            this.isApplyingRemote = false;
+          } else if (isFreshLogin) {
+            // New account on cloud: upload current local books as initial state
+            this.pushCloudState();
+          }
+          this.updateSyncUI('connected', username);
+        }, (err) => {
+          console.error('Firebase sync error:', err);
+          this.updateSyncUI('error', '同期エラー');
+          this.showToast('クラウド同期エラーが発生しました（DBのURLまたはルールを確認してください）', 'error');
+        });
+      }
+
+      logoutAccount() {
+        if (this.userRef) {
+          this.userRef.off();
+          this.userRef = null;
+        }
+        this.account = null;
+        localStorage.removeItem(ACCOUNT_KEY);
+        this.updateSyncUI('offline', 'ログイン / 同期');
+        this.closeModal();
+        this.showToast('ログアウトしました（ローカル保存モードに切り替わりました）', 'info');
+      }
+
+      updateSyncUI(status, labelText) {
+        const dot = document.getElementById('sync-status-dot');
+        const label = document.getElementById('header-account-label');
+        if (label) label.textContent = labelText;
+        if (!dot) return;
+
+        dot.className = 'w-2 h-2 rounded-full shrink-0 ';
+        if (status === 'connected') {
+          dot.className += 'bg-emerald-500';
+        } else if (status === 'syncing') {
+          dot.className += 'bg-amber-400 animate-pulse';
+        } else if (status === 'error') {
+          dot.className += 'bg-rose-500';
+        } else {
+          dot.className += 'bg-slate-400';
+        }
+      }
+
+      openAccountModal() {
+        const isLoggedIn = Boolean(this.account);
+        const currentDbUrl = this.getDatabaseURL();
+
+        this.openModal(`
+          <div class="p-6">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <i data-lucide="cloud" class="w-5 h-5 text-indigo-500"></i>
+                アカウント同期設定
+              </h3>
+              <button onclick="app.closeModal()" class="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
+                <i data-lucide="x" class="w-5 h-5"></i>
+              </button>
+            </div>
+
+            <p class="text-xs text-slate-600 dark:text-slate-400 mb-4 leading-relaxed">
+              <strong>アカウント名</strong>と<strong>パスワード</strong>を設定すると、あなた専用の単語帳と記憶度がクラウドに自動保存され、別のスマホやPCでも同じ情報でログインするだけで同期されます。
+            </p>
+
+            ${isLoggedIn ? `
+              <div class="p-4 rounded-2xl bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/70 mb-5 flex items-center justify-between gap-3">
+                <div>
+                  <div class="text-[11px] font-bold text-emerald-700 dark:text-emerald-400">現在ログイン中・自動同期オン</div>
+                  <div class="text-base font-extrabold text-slate-900 dark:text-white mt-0.5">${this.esc(this.account.username)}</div>
+                </div>
+                <button onclick="app.logoutAccount()" class="px-3.5 py-2 rounded-xl bg-white dark:bg-slate-900 border border-rose-200 dark:border-rose-900 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 text-xs font-bold transition-colors">
+                  ログアウト
+                </button>
+              </div>
+            ` : ''}
+
+            <form id="account-sync-form" class="space-y-4">
+              <div>
+                <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
+                  ${isLoggedIn ? '別のアカウントへ切り替え：アカウント名' : 'アカウント名'}
+                </label>
+                <input type="text" id="sync-username-input" required placeholder="例: taro_vocab"
+                  class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 outline-none" />
+              </div>
+
+              <div>
+                <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
+                  パスワード（合言葉）
+                </label>
+                <input type="password" id="sync-password-input" required placeholder="例: 1234abcd"
+                  class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 outline-none" />
+                <p class="mt-1 text-[11px] text-slate-400">※個人データ識別用です。他サービスと同じ重要なパスワードは使わないでください。</p>
+              </div>
+
+              <label class="flex items-center gap-2 text-xs font-medium text-slate-600 dark:text-slate-300 cursor-pointer">
+                <input type="checkbox" id="sync-remember-checkbox" checked class="rounded text-indigo-600 focus:ring-indigo-500" />
+                この端末でログイン状態を保持する
+              </label>
+
+              <details class="pt-2 border-t border-slate-100 dark:border-slate-800 text-xs text-slate-500">
+                <summary class="cursor-pointer font-semibold hover:text-slate-700 dark:hover:text-slate-300">詳細設定（Firebase Database URL）</summary>
+                <div class="mt-2">
+                  <input type="text" id="sync-dburl-input" value="${this.esc(currentDbUrl)}"
+                    class="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-mono text-[11px] text-slate-700 dark:text-slate-300" />
+                </div>
+              </details>
+
+              <div class="pt-2 flex items-center justify-end gap-2.5">
+                <button type="button" onclick="app.closeModal()" class="px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">閉じる</button>
+                <button type="submit" class="px-5 py-2.5 rounded-xl text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-sm">
+                  ログインして自動同期
+                </button>
+              </div>
+            </form>
+          </div>
+        `);
+
+        document.getElementById('account-sync-form').onsubmit = async (e) => {
+          e.preventDefault();
+          const username = document.getElementById('sync-username-input').value.trim();
+          const password = document.getElementById('sync-password-input').value;
+          const remember = document.getElementById('sync-remember-checkbox').checked;
+          const newDbUrl = document.getElementById('sync-dburl-input').value.trim().replace(/\/$/, '');
+
+          if (!username || !password) return;
+
+          if (newDbUrl && newDbUrl !== this.getDatabaseURL()) {
+            localStorage.setItem(DBURL_KEY, newDbUrl);
+          }
+
+          const userKey = await this.deriveUserKey(username, password);
+          if (remember) {
+            localStorage.setItem(ACCOUNT_KEY, JSON.stringify({ username, userKey }));
+          } else {
+            localStorage.removeItem(ACCOUNT_KEY);
+          }
+
+          if (newDbUrl && newDbUrl !== FIREBASE_CONFIG.databaseURL) {
+            location.reload();
+            return;
+          }
+
+          this.connectAccount(username, userKey, true);
+          this.closeModal();
+          this.showToast(`「${username}」でクラウド同期を開始しました`, 'success');
         };
-      });
-
-      currentStudyIndex = 0;
-      firstTryCorrectCount = 0;
-      totalInitialQuestions = studyQueue.length;
-
-      showView("study");
-      renderStudyQuestion();
-    }
-
-    function exitStudySession() {
-      if (confirm("学習を終了してブック詳細に戻りますか？")) {
-        openBookDetail(currentBookId);
-      }
-    }
-
-    function renderStudyQuestion() {
-      if (currentStudyIndex >= studyQueue.length) {
-        finishStudySession();
-        return;
       }
 
-      const q = studyQueue[currentStudyIndex];
-      currentQuestionFailed = false;
-
-      document.getElementById("studyProgressText").textContent = `${currentStudyIndex + 1} / ${studyQueue.length}`;
-      const pct = Math.round((currentStudyIndex / studyQueue.length) * 100);
-      document.getElementById("studyProgressBar").style.width = `${pct}%`;
-
-      const dirBadge = document.getElementById("studyDirectionBadge");
-      const promptText = document.getElementById("studyPromptText");
-      const answerInput = document.getElementById("studyAnswerInput");
-
-      if (q.direction === "ja2en") {
-        dirBadge.textContent = "🇯🇵 → 🇺🇸 日 → 英（スペル筆記）";
-        promptText.textContent = q.ja;
-        answerInput.placeholder = "英単語をタイピング...";
-      } else {
-        dirBadge.textContent = "🇺🇸 → 🇯🇵 英 → 日（意味筆記）";
-        promptText.textContent = q.en;
-        answerInput.placeholder = "日本語の意味をタイピング...";
-      }
-
-      document.getElementById("studyRevengeBadge").classList.toggle("hidden", !q.isRevenge);
-      document.getElementById("studyHintText").textContent = "";
-      document.getElementById("studyFeedbackBox").classList.add("hidden");
-      document.getElementById("retypeContainer").classList.add("hidden");
-      document.getElementById("studySubmitBtn").disabled = false;
-
-      answerInput.disabled = false;
-      answerInput.value = "";
-      answerInput.focus();
-    }
-
-    function showStudyHint() {
-      const q = studyQueue[currentStudyIndex];
-      if (!q) return;
-      if (q.direction === "ja2en") {
-        const first = q.en.slice(0, 2);
-        document.getElementById("studyHintText").textContent = `ヒント: ${first}${"_".repeat(Math.max(0, q.en.length - 2))} (${q.en.length}文字)`;
-      } else {
-        const clean = q.ja.replace(/^～を|^～に|^～/, "");
-        document.getElementById("studyHintText").textContent = `ヒント: 最初の文字は「${clean.charAt(0)}」`;
-      }
-    }
-
-    function normalizeText(str) {
-      return str
-        .trim()
-        .toLowerCase()
-        .replace(/[！!？?。．、,・\s ]/g, "")
-        .replace(/^～を|^～に|^～/, "");
-    }
-
-    function checkAnswerMatch(userInput, q) {
-      const normUser = normalizeText(userInput);
-      if (!normUser) return false;
-
-      if (q.direction === "ja2en") {
-        return normUser === normalizeText(q.en);
-      } else {
-        // 日本語の意味は「、」や「,」「/」で複数登録されていればどれか1つ一致で正解
-        const candidates = q.ja.split(/[、,／/]/).map(s => normalizeText(s)).filter(Boolean);
-        return candidates.includes(normUser) || normUser === normalizeText(q.ja);
-      }
-    }
-
-    function submitStudyAnswer(e) {
-      e.preventDefault();
-      const inputEl = document.getElementById("studyAnswerInput");
-      if (inputEl.disabled) return;
-
-      const userAns = inputEl.value;
-      if (!userAns.trim()) return;
-
-      const q = studyQueue[currentStudyIndex];
-      const isCorrect = checkAnswerMatch(userAns, q);
-
-      inputEl.disabled = true;
-      document.getElementById("studySubmitBtn").disabled = true;
-
-      const feedbackBox = document.getElementById("studyFeedbackBox");
-      const feedbackTitle = document.getElementById("feedbackTitle");
-      const feedbackSub = document.getElementById("feedbackSub");
-      const correctAnsEl = document.getElementById("feedbackCorrectAnswer");
-      const retypeContainer = document.getElementById("retypeContainer");
-      const nextBtn = document.getElementById("nextQuestionBtn");
-
-      const correctText = q.direction === "ja2en" ? q.en : q.ja;
-      correctAnsEl.textContent = correctText;
-      feedbackBox.classList.remove("hidden");
-
-      const book = books.find(b => b.id === currentBookId);
-      const wordObj = book?.words?.find(w => w.id === q.wordId);
-
-      if (isCorrect) {
-        feedbackBox.className = "rounded-xl p-4 space-y-3 bg-emerald-50 border border-emerald-200";
-        feedbackTitle.textContent = "⭕ 正解！";
-        feedbackTitle.className = "font-bold text-base text-emerald-700";
-        feedbackSub.textContent = q.isRevenge ? "リベンジ成功！" : "ナイス筆記！";
-        retypeContainer.classList.add("hidden");
-        nextBtn.disabled = false;
-        nextBtn.classList.remove("opacity-40", "cursor-not-allowed");
-
-        if (!q.isRevenge) {
-          firstTryCorrectCount++;
-          if (wordObj) wordObj.mastery = Math.min((wordObj.mastery || 0) + 1, 3);
+      // ==========================================
+      // STATE PERSISTENCE (LOCAL + CLOUD)
+      // ==========================================
+      loadState() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed && Array.isArray(parsed.books)) {
+              return parsed;
+            }
+          }
+        } catch (e) {
+          console.error('Failed to load state:', e);
         }
-        saveAllData();
-        nextBtn.focus();
-      } else {
-        currentQuestionFailed = true;
-        feedbackBox.className = "rounded-xl p-4 space-y-3 bg-rose-50 border border-rose-200 shake";
-        feedbackTitle.textContent = "❌ 不正解…";
-        feedbackTitle.className = "font-bold text-base text-rose-700";
-        feedbackSub.textContent = "後半で再出題されます";
+        return JSON.parse(JSON.stringify(DEFAULT_DATA));
+      }
 
-        if (wordObj) {
-          wordObj.mastery = Math.max((wordObj.mastery || 0) - 1, 0);
-          saveAllData();
+      saveLocalOnly() {
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
+        } catch (e) {
+          this.showToast('保存に失敗しました（ストレージ容量を確認してください）', 'error');
         }
+      }
 
-        // セッション後半にリベンジ問題として再追加
-        studyQueue.push({
-          ...q,
-          isRevenge: true
+      pushCloudState() {
+        if (this.userRef && this.account && !this.isApplyingRemote) {
+          this.updateSyncUI('syncing', `${this.account.username} (保存中...)`);
+          this.userRef.set(this.state)
+            .then(() => {
+              if (this.account) this.updateSyncUI('connected', this.account.username);
+            })
+            .catch(() => {
+              this.updateSyncUI('error', '保存エラー');
+            });
+        }
+      }
+
+      saveState() {
+        this.saveLocalOnly();
+        this.pushCloudState();
+      }
+
+      initTheme() {
+        const saved = localStorage.getItem(THEME_KEY);
+        if (saved === 'dark' || (!saved && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+          document.documentElement.classList.add('dark');
+        } else {
+          document.documentElement.classList.remove('dark');
+        }
+      }
+
+      toggleDarkMode() {
+        const isDark = document.documentElement.classList.toggle('dark');
+        localStorage.setItem(THEME_KEY, isDark ? 'dark' : 'light');
+      }
+
+      // Utility: Generate unique ID
+      uid(prefix = 'id') {
+        return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 7)}`;
+      }
+
+      // Utility: Escape HTML to prevent XSS
+      esc(str) {
+        if (str === null || str === undefined) return '';
+        return String(str)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      }
+
+      // Toast notification
+      showToast(message, type = 'info') {
+        const container = document.getElementById('toast-container');
+        const toast = document.createElement('div');
+        const colors = {
+          info: 'bg-slate-800 dark:bg-slate-700 text-white border-slate-700',
+          success: 'bg-emerald-600 text-white border-emerald-500',
+          error: 'bg-rose-600 text-white border-rose-500',
+          warning: 'bg-amber-600 text-white border-amber-500'
+        };
+        const icons = {
+          info: 'info',
+          success: 'check-circle-2',
+          error: 'alert-circle',
+          warning: 'alert-triangle'
+        };
+        toast.className = `pointer-events-auto flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-lg border text-sm font-medium animate-pop ${colors[type] || colors.info}`;
+        toast.innerHTML = `<i data-lucide="${icons[type] || 'info'}" class="w-4 h-4 shrink-0"></i><span>${this.esc(message)}</span>`;
+        container.appendChild(toast);
+        lucide.createIcons({ root: toast });
+
+        setTimeout(() => {
+          toast.style.opacity = '0';
+          toast.style.transform = 'translateY(8px)';
+          toast.style.transition = 'all 0.2s ease';
+          setTimeout(() => toast.remove(), 220);
+        }, 3000);
+      }
+
+      // Navigation
+      navigate(view, bookId = null) {
+        this.view = view;
+        if (bookId !== null) {
+          this.activeBookId = bookId;
+        }
+        this.searchQuery = '';
+        this.render();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+
+      getActiveBook() {
+        return this.state.books.find(b => b.id === this.activeBookId) || null;
+      }
+
+      // Calculate Book Mastery Stats (Monoxer-like segmented stats)
+      getBookStats(book) {
+        const total = book.words.length;
+        if (total === 0) {
+          return { total: 0, overallPercent: 0, mastered: 0, learning: 0, weak: 0, unlearned: 0 };
+        }
+        let sumPercent = 0;
+        let mastered = 0; // >= 85%
+        let learning = 0; // 40% - 84%
+        let weak = 0;     // 1% - 39%
+        let unlearned = 0;// 0%
+
+        book.words.forEach(w => {
+          const avg = Math.round(((w.masteryEnToJa || 0) + (w.masteryJaToEn || 0)) / 2);
+          sumPercent += avg;
+          if (avg >= 85) mastered++;
+          else if (avg >= 40) learning++;
+          else if (avg > 0) weak++;
+          else unlearned++;
         });
 
-        // 強制打ち直しを有効化
-        retypeContainer.classList.remove("hidden");
-        const retypeInput = document.getElementById("retypeInput");
-        retypeInput.value = "";
-        nextBtn.disabled = true;
-        nextBtn.classList.add("opacity-40", "cursor-not-allowed");
-        retypeInput.focus();
+        return {
+          total,
+          overallPercent: Math.round(sumPercent / total),
+          mastered,
+          learning,
+          weak,
+          unlearned
+        };
       }
-    }
 
-    function checkRetypeMatch() {
-      const q = studyQueue[currentStudyIndex];
-      const val = document.getElementById("retypeInput").value;
-      const nextBtn = document.getElementById("nextQuestionBtn");
+      // ==========================================
+      // BOOK CRUD OPERATIONS
+      // ==========================================
+      openBookModal(bookId = null) {
+        const isEdit = Boolean(bookId);
+        const book = isEdit ? this.state.books.find(b => b.id === bookId) : { title: '', description: '', color: 'indigo' };
+        const colors = [
+          { id: 'indigo', label: 'インディゴ', bg: 'bg-indigo-500' },
+          { id: 'teal', label: 'ティール', bg: 'bg-teal-500' },
+          { id: 'emerald', label: 'エメラルド', bg: 'bg-emerald-500' },
+          { id: 'amber', label: 'アンバー', bg: 'bg-amber-500' },
+          { id: 'rose', label: 'ローズ', bg: 'bg-rose-500' },
+          { id: 'violet', label: 'バイオレット', bg: 'bg-violet-500' },
+        ];
 
-      if (checkAnswerMatch(val, q)) {
-        nextBtn.disabled = false;
-        nextBtn.classList.remove("opacity-40", "cursor-not-allowed");
-      } else {
-        nextBtn.disabled = true;
-        nextBtn.classList.add("opacity-40", "cursor-not-allowed");
-      }
-    }
+        this.openModal(`
+          <div class="p-6">
+            <div class="flex items-center justify-between mb-5">
+              <h3 class="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <i data-lucide="${isEdit ? 'edit-3' : 'book-plus'}" class="w-5 h-5 text-indigo-500"></i>
+                ${isEdit ? 'ブック設定の編集' : '新しい単語ブックを作成'}
+              </h3>
+              <button onclick="app.closeModal()" class="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
+                <i data-lucide="x" class="w-5 h-5"></i>
+              </button>
+            </div>
+            <form id="book-form" class="space-y-4">
+              <div>
+                <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">ブック名 <span class="text-rose-500">*</span></label>
+                <input type="text" id="book-title-input" required maxlength="50" value="${this.esc(book.title)}" placeholder="例: TOEIC 800点 重要語彙"
+                  class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none" />
+              </div>
+              <div>
+                <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">説明・メモ（任意）</label>
+                <textarea id="book-desc-input" rows="2" maxlength="160" placeholder="学習の目標や範囲などのメモ"
+                  class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none resize-none">${this.esc(book.description)}</textarea>
+              </div>
+              <div>
+                <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">テーマカラー</label>
+                <div class="flex flex-wrap gap-2.5">
+                  ${colors.map(c => `
+                    <label class="cursor-pointer">
+                      <input type="radio" name="book-color" value="${c.id}" class="sr-only peer" ${book.color === c.id ? 'checked' : ''} />
+                      <div class="w-8 h-8 rounded-full ${c.bg} ring-2 ring-offset-2 ring-transparent peer-checked:ring-slate-900 dark:peer-checked:ring-white dark:ring-offset-slate-900 transition-all"></div>
+                    </label>
+                  `).join('')}
+                </div>
+              </div>
+              <div class="pt-3 flex items-center justify-end gap-2.5 border-t border-slate-100 dark:border-slate-800">
+                <button type="button" onclick="app.closeModal()" class="px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">キャンセル</button>
+                <button type="submit" class="px-5 py-2.5 rounded-xl text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-sm shadow-indigo-500/20">
+                  ${isEdit ? '変更を保存' : '作成する'}
+                </button>
+              </div>
+            </form>
+          </div>
+        `);
 
-    function nextStudyQuestion() {
-      const nextBtn = document.getElementById("nextQuestionBtn");
-      if (nextBtn.disabled) return;
-      currentStudyIndex++;
-      renderStudyQuestion();
-    }
+        document.getElementById('book-title-input').focus();
+        document.getElementById('book-form').onsubmit = (e) => {
+          e.preventDefault();
+          const title = document.getElementById('book-title-input').value.trim();
+          const description = document.getElementById('book-desc-input').value.trim();
+          const color = document.querySelector('input[name="book-color"]:checked')?.value || 'indigo';
 
-    function finishStudySession() {
-      const book = books.find(b => b.id === currentBookId);
-      document.getElementById("resultFirstTry").textContent = `${firstTryCorrectCount} / ${totalInitialQuestions}`;
-      document.getElementById("resultMastery").textContent = `${book ? calculateMasteryRate(book) : 0}%`;
-      showView("result");
-    }
+          if (!title) return;
 
-    // =========================================================================
-    // 6. モーダル制御・バックアップ
-    // =========================================================================
-    function openAuthModal() {
-      document.getElementById("customDbUrlInput").value = getActiveDatabaseURL();
-      const loggedPanel = document.getElementById("loggedInPanel");
-      if (currentAccount) {
-        loggedPanel.classList.remove("hidden");
-        document.getElementById("currentAccountDisplay").textContent = currentAccount.username;
-      } else {
-        loggedPanel.classList.add("hidden");
-      }
-      document.getElementById("authModal").classList.remove("hidden");
-    }
-
-    function openBackupModal() {
-      document.getElementById("backupModal").classList.remove("hidden");
-    }
-
-    function closeModal(id) {
-      document.getElementById(id).classList.add("hidden");
-    }
-
-    function exportJsonBackup() {
-      const blob = new Blob([JSON.stringify(books, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `memowrite_backup_${new Date().toISOString().slice(0, 10)}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-    }
-
-    function importJsonBackup(e) {
-      const file = e.target.files[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        try {
-          const imported = JSON.parse(ev.target.result);
-          if (Array.isArray(imported)) {
-            books = imported;
-            saveAllData();
-            renderDashboard();
-            closeModal("backupModal");
-            alert("バックアップデータを復元しました！");
+          if (isEdit) {
+            book.title = title;
+            book.description = description;
+            book.color = color;
+            book.updatedAt = Date.now();
+            this.showToast('ブック情報を更新しました', 'success');
+          } else {
+            const newBook = {
+              id: this.uid('book'),
+              title,
+              description,
+              color,
+              updatedAt: Date.now(),
+              words: []
+            };
+            this.state.books.unshift(newBook);
+            this.activeBookId = newBook.id;
+            this.view = 'book';
+            this.showToast('新しいブックを作成しました', 'success');
           }
-        } catch (err) {
-          alert("JSONファイルの読み込みに失敗しました。");
+          this.saveState();
+          this.closeModal();
+          this.render();
+        };
+      }
+
+      confirmDeleteBook(bookId) {
+        const book = this.state.books.find(b => b.id === bookId);
+        if (!book) return;
+
+        this.openModal(`
+          <div class="p-6">
+            <div class="w-12 h-12 rounded-2xl bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 flex items-center justify-center mb-4">
+              <i data-lucide="trash-2" class="w-6 h-6"></i>
+            </div>
+            <h3 class="text-lg font-bold text-slate-900 dark:text-white mb-2">ブックを削除しますか？</h3>
+            <p class="text-sm text-slate-600 dark:text-slate-400 mb-6">
+              「<span class="font-bold text-slate-800 dark:text-slate-200">${this.esc(book.title)}</span>」（登録単語 ${book.words.length}語）とすべての学習記録が完全に削除されます。この操作は取り消せません。
+            </p>
+            <div class="flex justify-end gap-2.5">
+              <button onclick="app.closeModal()" class="px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">キャンセル</button>
+              <button id="confirm-delete-book-btn" class="px-5 py-2.5 rounded-xl text-sm font-bold text-white bg-rose-600 hover:bg-rose-700">削除する</button>
+            </div>
+          </div>
+        `);
+
+        document.getElementById('confirm-delete-book-btn').onclick = () => {
+          this.state.books = this.state.books.filter(b => b.id !== bookId);
+          this.saveState();
+          this.closeModal();
+          this.showToast('ブックを削除しました', 'info');
+          if (this.activeBookId === bookId) {
+            this.navigate('home');
+          } else {
+            this.render();
+          }
+        };
+      }
+
+      // ==========================================
+      // WORD CRUD & BULK IMPORT
+      // ==========================================
+      openWordModal(wordId = null) {
+        const book = this.getActiveBook();
+        if (!book) return;
+        const isEdit = Boolean(wordId);
+        const word = isEdit ? book.words.find(w => w.id === wordId) : { en: '', ja: '' };
+
+        this.openModal(`
+          <div class="p-6">
+            <div class="flex items-center justify-between mb-5">
+              <h3 class="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <i data-lucide="${isEdit ? 'edit' : 'plus-circle'}" class="w-5 h-5 text-indigo-500"></i>
+                ${isEdit ? '単語を編集' : '単語を追加'}
+              </h3>
+              <button onclick="app.closeModal()" class="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
+                <i data-lucide="x" class="w-5 h-5"></i>
+              </button>
+            </div>
+            <form id="word-form" class="space-y-4">
+              <div>
+                <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">英単語・熟語 <span class="text-rose-500">*</span></label>
+                <input type="text" id="word-en-input" required value="${this.esc(word.en)}" placeholder="例: accomplish"
+                  class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium focus:ring-2 focus:ring-indigo-500 outline-none" />
+              </div>
+              <div>
+                <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">日本語の意味 <span class="text-rose-500">*</span></label>
+                <input type="text" id="word-ja-input" required value="${this.esc(word.ja)}" placeholder="例: 成し遂げる、達成する"
+                  class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none" />
+                <p class="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
+                  ※「、」や「,」「/」で区切って複数登録すると、英→日テストでどれか1つを筆記すれば正解になります。
+                </p>
+              </div>
+              <div class="pt-3 flex items-center justify-end gap-2.5 border-t border-slate-100 dark:border-slate-800">
+                <button type="button" onclick="app.closeModal()" class="px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">閉じる</button>
+                ${!isEdit ? `<button type="button" id="save-and-continue-btn" class="px-4 py-2.5 rounded-xl text-sm font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/60">保存して続けて追加</button>` : ''}
+                <button type="submit" class="px-5 py-2.5 rounded-xl text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700">
+                  ${isEdit ? '更新する' : '追加する'}
+                </button>
+              </div>
+            </form>
+          </div>
+        `);
+
+        const enInput = document.getElementById('word-en-input');
+        const jaInput = document.getElementById('word-ja-input');
+        enInput.focus();
+
+        const saveWord = (keepOpen = false) => {
+          const en = enInput.value.trim();
+          const ja = jaInput.value.trim();
+          if (!en || !ja) return;
+
+          if (isEdit) {
+            word.en = en;
+            word.ja = ja;
+            this.showToast('単語を更新しました', 'success');
+          } else {
+            book.words.push({
+              id: this.uid('w'),
+              en,
+              ja,
+              masteryEnToJa: 0,
+              masteryJaToEn: 0,
+              streak: 0
+            });
+            this.showToast(`「${en}」を追加しました`, 'success');
+          }
+          book.updatedAt = Date.now();
+          this.saveState();
+          this.render();
+
+          if (keepOpen) {
+            enInput.value = '';
+            jaInput.value = '';
+            enInput.focus();
+          } else {
+            this.closeModal();
+          }
+        };
+
+        document.getElementById('word-form').onsubmit = (e) => {
+          e.preventDefault();
+          saveWord(false);
+        };
+
+        const continueBtn = document.getElementById('save-and-continue-btn');
+        if (continueBtn) {
+          continueBtn.onclick = () => saveWord(true);
         }
-      };
-      reader.readAsText(file);
+      }
+
+      deleteWord(wordId) {
+        const book = this.getActiveBook();
+        if (!book) return;
+        book.words = book.words.filter(w => w.id !== wordId);
+        book.updatedAt = Date.now();
+        this.saveState();
+        this.render();
+        this.showToast('単語を削除しました', 'info');
+      }
+
+      resetBookMastery() {
+        const book = this.getActiveBook();
+        if (!book || book.words.length === 0) return;
+
+        this.openModal(`
+          <div class="p-6">
+            <h3 class="text-lg font-bold text-slate-900 dark:text-white mb-2">記憶度をリセットしますか？</h3>
+            <p class="text-sm text-slate-600 dark:text-slate-400 mb-6">
+              このブック内の全 ${book.words.length} 語の記憶度（定着率）を 0% に戻します。単語データは消えません。
+            </p>
+            <div class="flex justify-end gap-2.5">
+              <button onclick="app.closeModal()" class="px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">キャンセル</button>
+              <button id="confirm-reset-btn" class="px-5 py-2.5 rounded-xl text-sm font-bold text-white bg-amber-600 hover:bg-amber-700">リセットする</button>
+            </div>
+          </div>
+        `);
+
+        document.getElementById('confirm-reset-btn').onclick = () => {
+          book.words.forEach(w => {
+            w.masteryEnToJa = 0;
+            w.masteryJaToEn = 0;
+            w.streak = 0;
+          });
+          this.saveState();
+          this.closeModal();
+          this.render();
+          this.showToast('記憶度をリセットしました', 'info');
+        };
+      }
+
+      openBulkImportModal() {
+        const book = this.getActiveBook();
+        if (!book) return;
+
+        this.openModal(`
+          <div class="p-6">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <i data-lucide="file-spreadsheet" class="w-5 h-5 text-teal-500"></i>
+                単語の一括追加（CSV / テキスト）
+              </h3>
+              <button onclick="app.closeModal()" class="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
+                <i data-lucide="x" class="w-5 h-5"></i>
+              </button>
+            </div>
+            <p class="text-xs text-slate-600 dark:text-slate-400 mb-3 leading-relaxed">
+              1行につき1単語を「<code class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-mono">英単語, 日本語訳</code>」または「<code class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-mono">英単語 [タブ] 日本語訳</code>」の形式で貼り付けてください。Excelやスプレッドシートからのコピペにも対応しています。
+            </p>
+            <textarea id="bulk-textarea" rows="8" placeholder="apple, りんご&#10;improve, 改善する、向上させる&#10;accurate	正確な"
+              class="w-full p-3.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 text-slate-900 dark:text-white font-mono text-sm focus:ring-2 focus:ring-indigo-500 outline-none"></textarea>
+            <div class="mt-4 flex items-center justify-end gap-2.5">
+              <button onclick="app.closeModal()" class="px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">キャンセル</button>
+              <button id="bulk-import-submit" class="px-5 py-2.5 rounded-xl text-sm font-bold text-white bg-teal-600 hover:bg-teal-700 flex items-center gap-1.5">
+                <i data-lucide="plus" class="w-4 h-4"></i> 一括登録する
+              </button>
+            </div>
+          </div>
+        `);
+
+        document.getElementById('bulk-textarea').focus();
+        document.getElementById('bulk-import-submit').onclick = () => {
+          const text = document.getElementById('bulk-textarea').value;
+          const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+          let addedCount = 0;
+
+          lines.forEach(line => {
+            // Split by tab first, otherwise first comma or colon
+            let parts = line.includes('\t') ? line.split('\t') : line.split(/[,，:：]/);
+            if (parts.length >= 2) {
+              const en = parts[0].trim();
+              const ja = parts.slice(1).join('、').trim();
+              if (en && ja) {
+                book.words.push({
+                  id: this.uid('w'),
+                  en,
+                  ja,
+                  masteryEnToJa: 0,
+                  masteryJaToEn: 0,
+                  streak: 0
+                });
+                addedCount++;
+              }
+            }
+          });
+
+          if (addedCount > 0) {
+            book.updatedAt = Date.now();
+            this.saveState();
+            this.closeModal();
+            this.render();
+            this.showToast(`${addedCount} 語の単語を一括追加しました！`, 'success');
+          } else {
+            this.showToast('有効な単語データが見つかりませんでした。形式を確認してください。', 'warning');
+          }
+        };
+      }
+
+      // ==========================================
+      // JSON BACKUP / RESTORE
+      // ==========================================
+      openBackupModal() {
+        const jsonStr = JSON.stringify(this.state, null, 2);
+        this.openModal(`
+          <div class="p-6">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <i data-lucide="database" class="w-5 h-5 text-indigo-500"></i>
+                学習データのバックアップ・復元
+              </h3>
+              <button onclick="app.closeModal()" class="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
+                <i data-lucide="x" class="w-5 h-5"></i>
+              </button>
+            </div>
+            <p class="text-xs text-slate-600 dark:text-slate-400 mb-4 leading-relaxed">
+              すべての単語ブックと記憶度データはブラウザおよびログイン中のアカウントに自動保存されています。手動バックアップにはJSONデータをご利用ください。
+            </p>
+            <div class="flex flex-wrap gap-2 mb-4">
+              <button id="download-json-btn" class="flex-1 py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold flex items-center justify-center gap-2">
+                <i data-lucide="download" class="w-4 h-4"></i> JSONファイル保存
+              </button>
+              <button id="copy-json-btn" class="py-2.5 px-4 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-sm font-semibold flex items-center justify-center gap-2">
+                <i data-lucide="copy" class="w-4 h-4"></i> コピー
+              </button>
+            </div>
+            <div class="border-t border-slate-200 dark:border-slate-800 pt-4">
+              <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">JSONから復元（上書き）</label>
+              <textarea id="restore-json-textarea" rows="4" placeholder="ここにバックアップJSONを貼り付けて「復元する」を押してください"
+                class="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-mono text-slate-800 dark:text-slate-200 outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
+              <button id="restore-json-btn" class="mt-2.5 w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold">
+                JSONデータを読み込んで復元
+              </button>
+            </div>
+          </div>
+        `);
+
+        document.getElementById('download-json-btn').onclick = () => {
+          const blob = new Blob([jsonStr], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `memowrite_backup_${new Date().toISOString().slice(0, 10)}.json`;
+          a.click();
+          URL.revokeObjectURL(url);
+          this.showToast('バックアップファイルをダウンロードしました', 'success');
+        };
+
+        document.getElementById('copy-json-btn').onclick = () => {
+          const temp = document.createElement('textarea');
+          temp.value = jsonStr;
+          document.body.appendChild(temp);
+          temp.select();
+          document.execCommand('copy');
+          document.body.removeChild(temp);
+          this.showToast('JSONデータをクリップボードにコピーしました', 'success');
+        };
+
+        document.getElementById('restore-json-btn').onclick = () => {
+          try {
+            const input = document.getElementById('restore-json-textarea').value.trim();
+            const parsed = JSON.parse(input);
+            if (!parsed || !Array.isArray(parsed.books)) {
+              throw new Error('Invalid format');
+            }
+            this.state = parsed;
+            this.saveState();
+            this.closeModal();
+            this.navigate('home');
+            this.showToast('データを復元しました！', 'success');
+          } catch (e) {
+            this.showToast('JSONの形式が正しくありません', 'error');
+          }
+        };
+      }
+
+      // ==========================================
+      // MONOXER-STYLE TYPING LEARNING ENGINE
+      // ==========================================
+      openStudySetupModal() {
+        const book = this.getActiveBook();
+        if (!book) return;
+        if (book.words.length === 0) {
+          this.showToast('学習を始めるには、まず単語を1つ以上登録してください', 'warning');
+          return;
+        }
+
+        const weakCount = book.words.filter(w => ((w.masteryEnToJa + w.masteryJaToEn) / 2) < 85).length;
+
+        this.openModal(`
+          <div class="p-6">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <i data-lucide="keyboard" class="w-5 h-5 text-indigo-500"></i>
+                筆記学習の設定
+              </h3>
+              <button onclick="app.closeModal()" class="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
+                <i data-lucide="x" class="w-5 h-5"></i>
+              </button>
+            </div>
+
+            <div class="space-y-5">
+              <!-- Direction Mode -->
+              <div>
+                <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">出題方向（すべてタイピング解答）</label>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <label class="cursor-pointer">
+                    <input type="radio" name="study-dir" value="mix" class="sr-only peer" checked />
+                    <div class="p-3 rounded-xl border-2 border-slate-200 dark:border-slate-800 peer-checked:border-indigo-600 peer-checked:bg-indigo-50/70 dark:peer-checked:bg-indigo-950/40 transition-all text-center">
+                      <div class="font-bold text-sm text-slate-900 dark:text-white">双方向ミックス</div>
+                      <div class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">日→英 ＆ 英→日</div>
+                    </div>
+                  </label>
+                  <label class="cursor-pointer">
+                    <input type="radio" name="study-dir" value="ja2en" class="sr-only peer" />
+                    <div class="p-3 rounded-xl border-2 border-slate-200 dark:border-slate-800 peer-checked:border-indigo-600 peer-checked:bg-indigo-50/70 dark:peer-checked:bg-indigo-950/40 transition-all text-center">
+                      <div class="font-bold text-sm text-slate-900 dark:text-white">日 → 英</div>
+                      <div class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">英単語をスペル入力</div>
+                    </div>
+                  </label>
+                  <label class="cursor-pointer">
+                    <input type="radio" name="study-dir" value="en2ja" class="sr-only peer" />
+                    <div class="p-3 rounded-xl border-2 border-slate-200 dark:border-slate-800 peer-checked:border-indigo-600 peer-checked:bg-indigo-50/70 dark:peer-checked:bg-indigo-950/40 transition-all text-center">
+                      <div class="font-bold text-sm text-slate-900 dark:text-white">英 → 日</div>
+                      <div class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">日本語の意味を入力</div>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              <!-- Target Scope -->
+              <div>
+                <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">出題範囲・優先度</label>
+                <div class="grid grid-cols-2 gap-2.5">
+                  <label class="cursor-pointer">
+                    <input type="radio" name="study-scope" value="smart" class="sr-only peer" checked />
+                    <div class="p-3 rounded-xl border-2 border-slate-200 dark:border-slate-800 peer-checked:border-teal-600 peer-checked:bg-teal-50/70 dark:peer-checked:bg-teal-950/40 transition-all">
+                      <div class="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-1.5">
+                        <i data-lucide="sparkles" class="w-4 h-4 text-teal-500"></i> 弱点優先・自動出題
+                      </div>
+                      <div class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">記憶度の低い単語を優先（未定着: ${weakCount}語）</div>
+                    </div>
+                  </label>
+                  <label class="cursor-pointer">
+                    <input type="radio" name="study-scope" value="all" class="sr-only peer" />
+                    <div class="p-3 rounded-xl border-2 border-slate-200 dark:border-slate-800 peer-checked:border-teal-600 peer-checked:bg-teal-50/70 dark:peer-checked:bg-teal-950/40 transition-all">
+                      <div class="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-1.5">
+                        <i data-lucide="layers" class="w-4 h-4 text-indigo-500"></i> ブック全単語
+                      </div>
+                      <div class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">登録されている全 ${book.words.length} 語から出題</div>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              <button id="start-session-btn" class="w-full py-3.5 px-5 rounded-xl bg-gradient-to-r from-indigo-600 to-teal-600 hover:from-indigo-700 hover:to-teal-700 text-white font-bold text-base shadow-lg shadow-indigo-500/25 flex items-center justify-center gap-2 transition-all">
+                <i data-lucide="play" class="w-5 h-5 fill-current"></i> 筆記トレーニングを開始
+              </button>
+            </div>
+          </div>
+        `);
+
+        document.getElementById('start-session-btn').onclick = () => {
+          const directionMode = document.querySelector('input[name="study-dir"]:checked').value;
+          const scope = document.querySelector('input[name="study-scope"]:checked').value;
+          this.closeModal();
+          this.startStudySession(directionMode, scope);
+        };
+      }
+
+      startStudySession(directionMode, scope) {
+        const book = this.getActiveBook();
+        if (!book || book.words.length === 0) return;
+
+        // Build question queue
+        let candidates = [...book.words];
+        if (scope === 'smart') {
+          // Sort by lowest average mastery first
+          candidates.sort((a, b) => {
+            const avgA = (a.masteryEnToJa + a.masteryJaToEn) / 2;
+            const avgB = (b.masteryEnToJa + b.masteryJaToEn) / 2;
+            return avgA - avgB;
+          });
+          // Take up to 15 prioritized words, then shuffle slightly
+          candidates = candidates.slice(0, 15).sort(() => Math.random() - 0.5);
+        } else {
+          candidates.sort(() => Math.random() - 0.5);
+        }
+
+        const queue = [];
+        candidates.forEach(word => {
+          if (directionMode === 'mix') {
+            // Choose weaker direction for this word, or random if equal
+            const dir = word.masteryJaToEn < word.masteryEnToJa
+              ? 'ja2en'
+              : (word.masteryEnToJa < word.masteryJaToEn ? 'en2ja' : (Math.random() < 0.5 ? 'ja2en' : 'en2ja'));
+            queue.push({ wordId: word.id, dir, isRetry: false });
+          } else {
+            queue.push({ wordId: word.id, dir: directionMode, isRetry: false });
+          }
+        });
+
+        this.studySession = {
+          bookId: book.id,
+          directionMode,
+          scope,
+          queue,
+          currentIndex: 0,
+          hintLevel: 0,
+          phase: 'question', // 'question' | 'feedback_correct' | 'feedback_wrong' | 'complete'
+          lastUserAnswer: '',
+          correctCount: 0,
+          wrongCount: 0,
+          history: [] // { en, ja, dir, correct, usedHint }
+        };
+
+        this.view = 'study';
+        this.render();
+      }
+
+      // Normalize string for flexible, fair comparison
+      normalizeAnswer(str) {
+        return str
+          .trim()
+          .toLowerCase()
+          // Convert full-width alphanumeric to half-width
+          .replace(/[！-～]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0))
+          // Collapse multiple spaces
+          .replace(/\s+/g, ' ');
+      }
+
+      // Check if user's typed answer matches expected answer
+      checkAnswerMatch(userInput, targetRaw, dir) {
+        const normUser = this.normalizeAnswer(userInput);
+        if (!normUser) return false;
+
+        if (dir === 'ja2en') {
+          // Target is English (support slash or comma variants if entered)
+          const variants = targetRaw.split(/[/／,，]/).map(s => this.normalizeAnswer(s)).filter(Boolean);
+          return variants.includes(normUser);
+        } else {
+          // Target is Japanese: allow matching ANY of the meanings separated by 、 , / ・
+          const variants = targetRaw
+            .split(/[、,，/／・]/)
+            .map(s => this.normalizeAnswer(s.replace(/（.*?）|\(.*?\)/g, ''))) // ignore parenthetical notes if user omits them
+            .filter(Boolean);
+          // Also allow exact match of full string
+          variants.push(this.normalizeAnswer(targetRaw));
+          return variants.includes(normUser);
+        }
+      }
+
+      // Generate progressive Monoxer-style masked hint
+      getHintText(word, dir, hintLevel) {
+        const target = dir === 'ja2en' ? word.en : word.ja.split(/[、,，/／・]/)[0].trim();
+        if (hintLevel <= 0) return '';
+
+        const chars = Array.from(target);
+        const revealCount = Math.min(chars.length - 1, hintLevel);
+
+        return chars.map((ch, idx) => {
+          if (ch === ' ') return '  ';
+          if (idx < revealCount) return ch;
+          return '＿';
+        }).join(' ');
+      }
+
+      useHint() {
+        if (!this.studySession || this.studySession.phase !== 'question') return;
+        this.studySession.hintLevel++;
+        this.render();
+        const input = document.getElementById('study-answer-input');
+        if (input) input.focus();
+      }
+
+      submitStudyAnswer(userRaw) {
+        const session = this.studySession;
+        if (!session) return;
+        const book = this.getActiveBook();
+        const currentItem = session.queue[session.currentIndex];
+        const word = book.words.find(w => w.id === currentItem.wordId);
+        if (!word) return;
+
+        const targetRaw = currentItem.dir === 'ja2en' ? word.en : word.ja;
+
+        // If user is in 'feedback_wrong' phase, require typing the correct answer once to reinforce memory!
+        if (session.phase === 'feedback_wrong') {
+          const isCorrected = this.checkAnswerMatch(userRaw, targetRaw, currentItem.dir);
+          if (isCorrected) {
+            this.advanceStudyQueue();
+          } else {
+            const input = document.getElementById('study-retype-input');
+            if (input) {
+              input.classList.remove('animate-shake');
+              void input.offsetWidth; // trigger reflow
+              input.classList.add('animate-shake');
+              input.value = '';
+              input.focus();
+            }
+            this.showToast('正しいスペル・意味をそのまま入力してください', 'warning');
+          }
+          return;
+        }
+
+        // Normal 'question' phase evaluation
+        const isCorrect = this.checkAnswerMatch(userRaw, targetRaw, currentItem.dir);
+        session.lastUserAnswer = userRaw;
+
+        const masteryKey = currentItem.dir === 'ja2en' ? 'masteryJaToEn' : 'masteryEnToJa';
+        const currentMastery = word[masteryKey] || 0;
+
+        if (isCorrect) {
+          // Calculate mastery gain (reduced if hint was used or if it was a retry)
+          let gain = 25;
+          if (session.hintLevel > 0) gain = 10;
+          if (currentItem.isRetry) gain = 10;
+
+          word[masteryKey] = Math.min(100, currentMastery + gain);
+          word.streak = (word.streak || 0) + 1;
+          session.correctCount++;
+          session.phase = 'feedback_correct';
+
+          if (!currentItem.isRetry) {
+            session.history.push({
+              en: word.en,
+              ja: word.ja,
+              dir: currentItem.dir,
+              correct: true,
+              usedHint: session.hintLevel > 0
+            });
+          }
+        } else {
+          // Penalty on mistake & re-queue at the end of the session (Monoxer reinforcement loop)
+          word[masteryKey] = Math.max(0, currentMastery - 15);
+          word.streak = 0;
+          session.wrongCount++;
+          session.phase = 'feedback_wrong';
+
+          if (!currentItem.isRetry) {
+            session.history.push({
+              en: word.en,
+              ja: word.ja,
+              dir: currentItem.dir,
+              correct: false,
+              usedHint: session.hintLevel > 0
+            });
+          }
+
+          // Re-insert into queue 2-3 steps later or at the end so user must recall it again
+          session.queue.push({
+            wordId: word.id,
+            dir: currentItem.dir,
+            isRetry: true
+          });
+        }
+
+        book.updatedAt = Date.now();
+        this.saveState();
+        this.render();
+      }
+
+      advanceStudyQueue() {
+        const session = this.studySession;
+        if (!session) return;
+
+        if (session.currentIndex + 1 < session.queue.length) {
+          session.currentIndex++;
+          session.hintLevel = 0;
+          session.phase = 'question';
+          session.lastUserAnswer = '';
+        } else {
+          session.phase = 'complete';
+        }
+        this.render();
+      }
+
+      // ==========================================
+      // MODAL HELPERS
+      // ==========================================
+      openModal(htmlContent) {
+        const backdrop = document.getElementById('modal-backdrop');
+        const content = document.getElementById('modal-content');
+        content.innerHTML = htmlContent;
+        backdrop.classList.remove('hidden');
+        backdrop.classList.add('flex');
+        lucide.createIcons({ root: content });
+
+        backdrop.onclick = (e) => {
+          if (e.target === backdrop) this.closeModal();
+        };
+      }
+
+      closeModal() {
+        const backdrop = document.getElementById('modal-backdrop');
+        backdrop.classList.add('hidden');
+        backdrop.classList.remove('flex');
+      }
+
+      // ==========================================
+      // VIEW RENDERING
+      // ==========================================
+      render() {
+        const main = document.getElementById('app-main');
+        if (this.view === 'home') {
+          main.innerHTML = this.renderHomeView();
+        } else if (this.view === 'book') {
+          main.innerHTML = this.renderBookView();
+          this.bindBookViewEvents();
+        } else if (this.view === 'study') {
+          main.innerHTML = this.renderStudyView();
+          this.bindStudyViewEvents();
+        }
+        lucide.createIcons({ root: main });
+      }
+
+      // 1. HOME VIEW: Book Library & Overall Mastery Dashboard
+      renderHomeView() {
+        const totalBooks = this.state.books.length;
+        const totalWords = this.state.books.reduce((acc, b) => acc + b.words.length, 0);
+        const totalMastered = this.state.books.reduce((acc, b) => acc + this.getBookStats(b).mastered, 0);
+
+        const colorMap = {
+          indigo: 'from-indigo-500 to-blue-600',
+          teal: 'from-teal-500 to-emerald-600',
+          emerald: 'from-emerald-500 to-green-600',
+          amber: 'from-amber-500 to-orange-600',
+          rose: 'from-rose-500 to-pink-600',
+          violet: 'from-violet-500 to-purple-600',
+        };
+
+        return `
+          <div class="space-y-8 animate-pop">
+            <!-- Hero / Summary Banner -->
+            <div class="bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border border-slate-200/80 dark:border-slate-800 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-6">
+              <div>
+                <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-50 dark:bg-indigo-950/70 text-indigo-600 dark:text-indigo-400 text-xs font-bold mb-3">
+                  <i data-lucide="sparkles" class="w-3.5 h-3.5"></i> 全問筆記アウトプット学習
+                </div>
+                <h1 class="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+                  マイ単語ブック一覧
+                </h1>
+                <p class="text-sm text-slate-500 dark:text-slate-400 mt-1.5">
+                  「見るだけ」を卒業し、英単語⇔日本語の双方向タイピングで記憶を100%定着させます。
+                </p>
+              </div>
+
+              <!-- Global Stats Pills -->
+              <div class="flex items-center gap-3 sm:gap-4 shrink-0">
+                <div class="px-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/60 dark:border-slate-700/60 text-center min-w-[88px]">
+                  <div class="text-xs font-semibold text-slate-500 dark:text-slate-400">ブック数</div>
+                  <div class="text-xl font-extrabold text-slate-900 dark:text-white mt-0.5">${totalBooks}</div>
+                </div>
+                <div class="px-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/60 dark:border-slate-700/60 text-center min-w-[88px]">
+                  <div class="text-xs font-semibold text-slate-500 dark:text-slate-400">総単語数</div>
+                  <div class="text-xl font-extrabold text-slate-900 dark:text-white mt-0.5">${totalWords}</div>
+                </div>
+                <div class="px-4 py-3 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/40 border border-emerald-200/60 dark:border-emerald-800/50 text-center min-w-[96px]">
+                  <div class="text-xs font-semibold text-emerald-700 dark:text-emerald-400">定着済み</div>
+                  <div class="text-xl font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5">${totalMastered}<span class="text-xs font-semibold ml-0.5">語</span></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Action Bar -->
+            <div class="flex items-center justify-between">
+              <h2 class="text-base font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                <i data-lucide="book-open" class="w-4 h-4 text-indigo-500"></i> 登録済みのブック
+              </h2>
+              <button onclick="app.openBookModal()" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold shadow-md shadow-indigo-500/20 transition-all">
+                <i data-lucide="plus" class="w-4 h-4"></i> 新規ブック作成
+              </button>
+            </div>
+
+            <!-- Books Grid -->
+            ${totalBooks === 0 ? `
+              <div class="bg-white dark:bg-slate-900 rounded-3xl p-12 border border-dashed border-slate-300 dark:border-slate-700 text-center">
+                <div class="w-14 h-14 rounded-2xl bg-indigo-50 dark:bg-indigo-950 text-indigo-500 mx-auto flex items-center justify-center mb-4">
+                  <i data-lucide="book-plus" class="w-7 h-7"></i>
+                </div>
+                <h3 class="text-lg font-bold text-slate-900 dark:text-white mb-1">まだ単語ブックがありません</h3>
+                <p class="text-sm text-slate-500 dark:text-slate-400 mb-5">「新規ブック作成」から最初の単語帳を作成しましょう。</p>
+                <button onclick="app.openBookModal()" class="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold">
+                  ブックを作成する
+                </button>
+              </div>
+            ` : `
+              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                ${this.state.books.map(book => {
+                  const stats = this.getBookStats(book);
+                  const gradient = colorMap[book.color] || colorMap.indigo;
+                  const pMastered = stats.total ? (stats.mastered / stats.total) * 100 : 0;
+                  const pLearning = stats.total ? (stats.learning / stats.total) * 100 : 0;
+                  const pWeak = stats.total ? (stats.weak / stats.total) * 100 : 0;
+
+                  return `
+                    <div class="group bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 hover:border-indigo-400 dark:hover:border-indigo-500 shadow-sm hover:shadow-xl hover:shadow-indigo-500/5 transition-all flex flex-col justify-between overflow-hidden">
+                      <!-- Top Color Accent Bar -->
+                      <div class="h-2 w-full bg-gradient-to-r ${gradient}"></div>
+
+                      <div class="p-5 sm:p-6 flex-1 flex flex-col">
+                        <div class="flex items-start justify-between gap-2 mb-2">
+                          <h3 onclick="app.navigate('book', '${book.id}')" class="font-bold text-lg text-slate-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors cursor-pointer line-clamp-1">
+                            ${this.esc(book.title)}
+                          </h3>
+                          <div class="flex items-center gap-1 shrink-0">
+                            <button onclick="app.openBookModal('${book.id}')" class="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800" title="ブック編集">
+                              <i data-lucide="settings-2" class="w-4 h-4"></i>
+                            </button>
+                            <button onclick="app.confirmDeleteBook('${book.id}')" class="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50" title="ブック削除">
+                              <i data-lucide="trash-2" class="w-4 h-4"></i>
+                            </button>
+                          </div>
+                        </div>
+
+                        <p class="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 min-h-[2rem] mb-5">
+                          ${book.description ? this.esc(book.description) : '説明なし'}
+                        </p>
+
+                        <!-- Monoxer-Style Segmented Mastery Bar -->
+                        <div class="mt-auto space-y-2.5">
+                          <div class="flex items-end justify-between">
+                            <span class="text-xs font-bold text-slate-500 dark:text-slate-400">記憶定着率</span>
+                            <div class="flex items-baseline gap-1">
+                              <span class="text-2xl font-extrabold text-slate-900 dark:text-white">${stats.overallPercent}</span>
+                              <span class="text-xs font-bold text-slate-500">%</span>
+                            </div>
+                          </div>
+
+                          <div class="w-full h-2.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden flex">
+                            <div style="width: ${pMastered}%" class="bg-emerald-500 transition-all duration-500" title="定着済み: ${stats.mastered}語"></div>
+                            <div style="width: ${pLearning}%" class="bg-blue-500 transition-all duration-500" title="記憶中: ${stats.learning}語"></div>
+                            <div style="width: ${pWeak}%" class="bg-amber-400 transition-all duration-500" title="うろ覚え: ${stats.weak}語"></div>
+                          </div>
+
+                          <div class="flex items-center justify-between text-[11px] font-medium text-slate-500 dark:text-slate-400 pt-1">
+                            <span>全 ${stats.total} 語</span>
+                            <span class="text-emerald-600 dark:text-emerald-400 font-semibold">定着 ${stats.mastered}語</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <!-- Card Footer Actions -->
+                      <div class="px-5 py-3.5 bg-slate-50/80 dark:bg-slate-800/40 border-t border-slate-100 dark:border-slate-800 flex items-center gap-2">
+                        <button onclick="app.navigate('book', '${book.id}')" class="flex-1 py-2 px-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold transition-colors flex items-center justify-center gap-1.5">
+                          <i data-lucide="list-plus" class="w-3.5 h-3.5"></i> 単語一覧・編集
+                        </button>
+                        <button onclick="app.activeBookId='${book.id}'; app.openStudySetupModal()" class="flex-1 py-2 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-sm transition-colors flex items-center justify-center gap-1.5">
+                          <i data-lucide="pen-tool" class="w-3.5 h-3.5"></i> 筆記学習
+                        </button>
+                      </div>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            `}
+          </div>
+        `;
+      }
+
+      // 2. BOOK DETAIL & EDITOR VIEW
+      renderBookView() {
+        const book = this.getActiveBook();
+        if (!book) {
+          this.navigate('home');
+          return '';
+        }
+        const stats = this.getBookStats(book);
+        const q = this.searchQuery.toLowerCase();
+        const filteredWords = book.words.filter(w =>
+          w.en.toLowerCase().includes(q) || w.ja.toLowerCase().includes(q)
+        );
+
+        const pMastered = stats.total ? (stats.mastered / stats.total) * 100 : 0;
+        const pLearning = stats.total ? (stats.learning / stats.total) * 100 : 0;
+        const pWeak = stats.total ? (stats.weak / stats.total) * 100 : 0;
+
+        return `
+          <div class="space-y-6 animate-pop">
+            <!-- Breadcrumb & Back -->
+            <div class="flex items-center justify-between">
+              <button onclick="app.navigate('home')" class="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-400 transition-colors">
+                <i data-lucide="arrow-left" class="w-4 h-4"></i> ブック一覧に戻る
+              </button>
+              <div class="flex items-center gap-2">
+                <button onclick="app.openBookModal('${book.id}')" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800">
+                  <i data-lucide="edit-3" class="w-3.5 h-3.5"></i> ブック名編集
+                </button>
+                <button onclick="app.resetBookMastery()" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-amber-600 dark:text-amber-400 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-amber-50 dark:hover:bg-amber-950/30">
+                  <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i> 記憶度リセット
+                </button>
+              </div>
+            </div>
+
+            <!-- Book Header & Mastery Breakdown Card -->
+            <div class="bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border border-slate-200/80 dark:border-slate-800 shadow-sm">
+              <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+                <div class="space-y-2 max-w-2xl">
+                  <h1 class="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+                    ${this.esc(book.title)}
+                  </h1>
+                  <p class="text-sm text-slate-500 dark:text-slate-400">
+                    ${book.description ? this.esc(book.description) : '登録単語を編集したり、筆記トレーニングを開始できます。'}
+                  </p>
+                </div>
+
+                <div class="shrink-0">
+                  <button onclick="app.openStudySetupModal()" class="w-full sm:w-auto px-7 py-4 rounded-2xl bg-gradient-to-r from-indigo-600 to-teal-600 hover:from-indigo-700 hover:to-teal-700 text-white font-bold text-base shadow-lg shadow-indigo-500/25 flex items-center justify-center gap-2.5 transition-all hover:scale-[1.02]">
+                    <i data-lucide="pen-tool" class="w-5 h-5"></i> 筆記学習をスタート
+                  </button>
+                </div>
+              </div>
+
+              <!-- Segmented Mastery Progress Bar -->
+              <div class="mt-7 pt-6 border-t border-slate-100 dark:border-slate-800">
+                <div class="flex flex-wrap items-center justify-between gap-2 mb-2.5">
+                  <div class="flex items-center gap-2">
+                    <span class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">総合記憶度</span>
+                    <span class="text-xl font-extrabold text-indigo-600 dark:text-indigo-400">${stats.overallPercent}%</span>
+                  </div>
+                  <div class="flex flex-wrap items-center gap-4 text-xs font-semibold">
+                    <span class="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
+                      <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> 定着済み: ${stats.mastered}
+                    </span>
+                    <span class="flex items-center gap-1.5 text-blue-600 dark:text-blue-400">
+                      <span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span> 記憶中: ${stats.learning}
+                    </span>
+                    <span class="flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
+                      <span class="w-2.5 h-2.5 rounded-full bg-amber-400"></span> うろ覚え: ${stats.weak}
+                    </span>
+                    <span class="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
+                      <span class="w-2.5 h-2.5 rounded-full bg-slate-300 dark:bg-slate-700"></span> 未学習: ${stats.unlearned}
+                    </span>
+                  </div>
+                </div>
+                <div class="w-full h-3.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden flex">
+                  <div style="width: ${pMastered}%" class="bg-emerald-500 transition-all duration-500"></div>
+                  <div style="width: ${pLearning}%" class="bg-blue-500 transition-all duration-500"></div>
+                  <div style="width: ${pWeak}%" class="bg-amber-400 transition-all duration-500"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Word Management Toolbar -->
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <!-- Search Input -->
+              <div class="relative flex-1 max-w-md">
+                <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2"></i>
+                <input type="text" id="word-search-input" value="${this.esc(this.searchQuery)}" placeholder="単語や意味で検索..."
+                  class="w-full pl-10 pr-4 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" />
+              </div>
+
+              <!-- Add / Bulk Import Buttons -->
+              <div class="flex items-center gap-2.5">
+                <button onclick="app.openBulkImportModal()" class="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-sm font-bold transition-colors">
+                  <i data-lucide="file-spreadsheet" class="w-4 h-4 text-teal-500"></i> 一括追加
+                </button>
+                <button onclick="app.openWordModal()" class="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold shadow-sm transition-colors">
+                  <i data-lucide="plus" class="w-4 h-4"></i> 単語を追加
+                </button>
+              </div>
+            </div>
+
+            <!-- Words List -->
+            <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-sm overflow-hidden">
+              ${book.words.length === 0 ? `
+                <div class="p-12 text-center">
+                  <div class="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-400 mx-auto flex items-center justify-center mb-3">
+                    <i data-lucide="file-plus-2" class="w-6 h-6"></i>
+                  </div>
+                  <h3 class="text-base font-bold text-slate-900 dark:text-white mb-1">単語が登録されていません</h3>
+                  <p class="text-xs text-slate-500 dark:text-slate-400 mb-4">「単語を追加」または「一括追加」から学習したい単語を登録してください。</p>
+                  <button onclick="app.openWordModal()" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold">
+                    最初の単語を追加する
+                  </button>
+                </div>
+              ` : filteredWords.length === 0 ? `
+                <div class="p-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                  「${this.esc(this.searchQuery)}」に一致する単語はありません。
+                </div>
+              ` : `
+                <div class="divide-y divide-slate-100 dark:divide-slate-800">
+                  ${filteredWords.map((w, idx) => {
+                    const en2ja = w.masteryEnToJa || 0;
+                    const ja2en = w.masteryJaToEn || 0;
+                    const avg = Math.round((en2ja + ja2en) / 2);
+                    const badgeClass = avg >= 85
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-400 dark:border-emerald-800'
+                      : avg >= 40
+                      ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/60 dark:text-blue-400 dark:border-blue-800'
+                      : avg > 0
+                      ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/60 dark:text-amber-400 dark:border-amber-800'
+                      : 'bg-slate-100 text-slate-500 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700';
+
+                    return `
+                      <div class="p-4 sm:px-6 hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div class="flex-1 min-w-0 grid grid-cols-1 sm:grid-cols-2 gap-1 sm:gap-4 items-center">
+                          <div class="font-bold text-base text-slate-900 dark:text-white truncate">
+                            ${this.esc(w.en)}
+                          </div>
+                          <div class="text-sm text-slate-600 dark:text-slate-300 truncate">
+                            ${this.esc(w.ja)}
+                          </div>
+                        </div>
+
+                        <!-- Mastery Indicators & Actions -->
+                        <div class="flex items-center justify-between sm:justify-end gap-3 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100 dark:border-slate-800">
+                          <div class="flex items-center gap-2 text-[11px] font-semibold">
+                            <span class="px-2 py-0.5 rounded-md border ${badgeClass}" title="総合記憶度">
+                              定着 ${avg}%
+                            </span>
+                            <span class="hidden md:inline text-slate-400 dark:text-slate-500" title="英→日: ${en2ja}% / 日→英: ${ja2en}%">
+                              英→日 ${en2ja}%・日→英 ${ja2en}%
+                            </span>
+                          </div>
+
+                          <div class="flex items-center gap-1">
+                            <button onclick="app.openWordModal('${w.id}')" class="p-2 rounded-lg text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-colors" title="編集">
+                              <i data-lucide="pencil" class="w-4 h-4"></i>
+                            </button>
+                            <button onclick="app.deleteWord('${w.id}')" class="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors" title="削除">
+                              <i data-lucide="trash-2" class="w-4 h-4"></i>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    `;
+                  }).join('')}
+                </div>
+              `}
+            </div>
+          </div>
+        `;
+      }
+
+      bindBookViewEvents() {
+        const searchInput = document.getElementById('word-search-input');
+        if (searchInput) {
+          searchInput.oninput = (e) => {
+            this.searchQuery = e.target.value;
+            // Re-render list smoothly while preserving cursor
+            const pos = searchInput.selectionStart;
+            this.render();
+            const newInput = document.getElementById('word-search-input');
+            if (newInput) {
+              newInput.focus();
+              newInput.setSelectionRange(pos, pos);
+            }
+          };
+        }
+      }
+
+      // 3. MONOXER-STYLE TYPING STUDY VIEW
+      renderStudyView() {
+        const session = this.studySession;
+        const book = this.getActiveBook();
+        if (!session || !book) {
+          this.navigate('home');
+          return '';
+        }
+
+        // Session Complete Screen
+        if (session.phase === 'complete') {
+          const totalAnswered = session.history.length;
+          const firstTryCorrect = session.history.filter(h => h.correct).length;
+          const accuracy = totalAnswered ? Math.round((firstTryCorrect / totalAnswered) * 100) : 100;
+
+          return `
+            <div class="max-w-2xl mx-auto animate-pop">
+              <div class="bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-10 border border-slate-200 dark:border-slate-800 shadow-xl text-center">
+                <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-500 text-white mx-auto flex items-center justify-center shadow-lg shadow-emerald-500/25 mb-5">
+                  <i data-lucide="award" class="w-9 h-9"></i>
+                </div>
+                <h2 class="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white mb-2">
+                  トレーニング完了！
+                </h2>
+                <p class="text-sm text-slate-500 dark:text-slate-400 mb-8">
+                  すべての筆記問題をクリアしました。記憶度がアップデートされました！
+                </p>
+
+                <!-- Result Stats -->
+                <div class="grid grid-cols-3 gap-3 sm:gap-4 mb-8">
+                  <div class="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/70">
+                    <div class="text-xs font-bold text-slate-500 dark:text-slate-400">出題数</div>
+                    <div class="text-2xl font-extrabold text-slate-900 dark:text-white mt-1">${totalAnswered}<span class="text-xs ml-0.5">問</span></div>
+                  </div>
+                  <div class="p-4 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/40">
+                    <div class="text-xs font-bold text-emerald-700 dark:text-emerald-400">一発正解率</div>
+                    <div class="text-2xl font-extrabold text-emerald-600 dark:text-emerald-400 mt-1">${accuracy}<span class="text-xs ml-0.5">%</span></div>
+                  </div>
+                  <div class="p-4 rounded-2xl bg-indigo-50/70 dark:bg-indigo-950/40">
+                    <div class="text-xs font-bold text-indigo-700 dark:text-indigo-400">ブック定着率</div>
+                    <div class="text-2xl font-extrabold text-indigo-600 dark:text-indigo-400 mt-1">${this.getBookStats(book).overallPercent}<span class="text-xs ml-0.5">%</span></div>
+                  </div>
+                </div>
+
+                <!-- Session Review List -->
+                <div class="text-left mb-8">
+                  <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-3">今回の学習結果</h3>
+                  <div class="max-h-60 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800 rounded-2xl border border-slate-200 dark:border-slate-800">
+                    ${session.history.map(item => `
+                      <div class="px-4 py-3 flex items-center justify-between gap-3 text-sm bg-white dark:bg-slate-900">
+                        <div class="min-w-0">
+                          <div class="font-bold text-slate-900 dark:text-white truncate">${this.esc(item.en)}</div>
+                          <div class="text-xs text-slate-500 dark:text-slate-400 truncate">${this.esc(item.ja)}</div>
+                        </div>
+                        <div class="flex items-center gap-2 shrink-0">
+                          <span class="text-[11px] px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-semibold">
+                            ${item.dir === 'ja2en' ? '日→英' : '英→日'}
+                          </span>
+                          ${item.correct
+                            ? `<span class="inline-flex items-center gap-1 text-xs font-bold text-emerald-600 dark:text-emerald-400"><i data-lucide="check-circle-2" class="w-4 h-4"></i>${item.usedHint ? 'ヒント正解' : '正解'}</span>`
+                            : `<span class="inline-flex items-center gap-1 text-xs font-bold text-rose-500"><i data-lucide="refresh-cw" class="w-4 h-4"></i>復習クリア</span>`
+                          }
+                        </div>
+                      </div>
+                    `).join('')}
+                  </div>
+                </div>
+
+                <div class="flex flex-col sm:flex-row gap-3">
+                  <button onclick="app.navigate('book', '${book.id}')" class="flex-1 py-3.5 px-5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold text-sm transition-colors">
+                    ブック詳細へ戻る
+                  </button>
+                  <button onclick="app.startStudySession('${session.directionMode}', '${session.scope}')" class="flex-1 py-3.5 px-5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm shadow-md shadow-indigo-500/20 transition-colors">
+                    続けてもう1セット学習
+                  </button>
+                </div>
+              </div>
+            </div>
+          `;
+        }
+
+        // Active Question Screen
+        const currentItem = session.queue[session.currentIndex];
+        const word = book.words.find(w => w.id === currentItem.wordId);
+        const progressPercent = Math.round(((session.currentIndex) / session.queue.length) * 100);
+        const isJaToEn = currentItem.dir === 'ja2en';
+        const promptText = isJaToEn ? word.ja : word.en;
+        const expectedAnswer = isJaToEn ? word.en : word.ja;
+        const hintDisplay = this.getHintText(word, currentItem.dir, session.hintLevel);
+
+        return `
+          <div class="max-w-2xl mx-auto space-y-5 animate-pop">
+            <!-- Top Progress Header -->
+            <div class="flex items-center gap-4">
+              <button onclick="app.navigate('book', '${book.id}')" class="p-2 rounded-xl text-slate-500 hover:bg-slate-200/70 dark:hover:bg-slate-800 transition-colors" title="学習を中断">
+                <i data-lucide="x" class="w-5 h-5"></i>
+              </button>
+              <div class="flex-1 h-3 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
+                <div style="width: ${progressPercent}%" class="h-full bg-gradient-to-r from-indigo-500 to-teal-500 transition-all duration-300"></div>
+              </div>
+              <span class="text-xs font-extrabold text-slate-600 dark:text-slate-300 tabular-nums">
+                ${session.currentIndex + 1} / ${session.queue.length}
+              </span>
+            </div>
+
+            <!-- Main Question Card -->
+            <div class="bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-10 border border-slate-200/80 dark:border-slate-800 shadow-lg">
+              <!-- Direction & Retry Badges -->
+              <div class="flex items-center justify-between gap-2 mb-6">
+                <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold ${isJaToEn ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/70 dark:text-indigo-300' : 'bg-teal-50 text-teal-700 dark:bg-teal-950/70 dark:text-teal-300'}">
+                  <i data-lucide="${isJaToEn ? 'languages' : 'book-a'}" class="w-3.5 h-3.5"></i>
+                  ${isJaToEn ? '日 → 英（スペルを筆記）' : '英 → 日（意味を筆記）'}
+                </span>
+                ${currentItem.isRetry ? `
+                  <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300">
+                    <i data-lucide="refresh-cw" class="w-3 h-3"></i> リベンジ出題
+                  </span>
+                ` : ''}
+              </div>
+
+              <!-- Prompt Display -->
+              <div class="text-center py-4 sm:py-6">
+                <div class="text-xs font-semibold text-slate-400 dark:text-slate-500 mb-2">
+                  ${isJaToEn ? '次の日本語に対応する英単語を入力してください' : '次の英単語の日本語訳を入力してください'}
+                </div>
+                <div class="${isJaToEn ? 'text-2xl sm:text-3xl' : 'text-3xl sm:text-5xl tracking-tight'} font-extrabold text-slate-900 dark:text-white break-words">
+                  ${this.esc(promptText)}
+                </div>
+
+                <!-- Progressive Hint Display -->
+                ${hintDisplay ? `
+                  <div class="mt-5 inline-block px-4 py-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-amber-800 dark:text-amber-300 font-mono text-base sm:text-lg font-bold tracking-widest">
+                    ヒント: ${this.esc(hintDisplay)}
+                  </div>
+                ` : ''}
+              </div>
+
+              <!-- Phase 1: Question Input Form -->
+              ${session.phase === 'question' ? `
+                <form id="study-question-form" class="mt-4 space-y-4">
+                  <div class="relative">
+                    <input type="text" id="study-answer-input" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+                      placeholder="${isJaToEn ? '英単語をタイプ...' : '日本語の意味をタイプ...'}"
+                      class="w-full px-5 py-4 rounded-2xl border-2 border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 text-center text-lg sm:text-xl font-bold text-slate-900 dark:text-white focus:border-indigo-500 focus:bg-white dark:focus:bg-slate-800 outline-none transition-all" />
+                  </div>
+
+                  <div class="flex items-center gap-3">
+                    <button type="button" onclick="app.useHint()" class="px-4 py-3.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-sm font-bold flex items-center gap-1.5 transition-colors" title="1文字ずつヒントを表示">
+                      <i data-lucide="lightbulb" class="w-4 h-4 text-amber-500"></i> ヒント
+                    </button>
+                    <button type="submit" class="flex-1 py-3.5 px-6 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-base shadow-md shadow-indigo-500/20 flex items-center justify-center gap-2 transition-all">
+                      <span>解答する</span>
+                      <kbd class="hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-mono bg-indigo-500 rounded">Enter</kbd>
+                    </button>
+                  </div>
+                </form>
+              ` : ''}
+
+              <!-- Phase 2: Correct Feedback -->
+              ${session.phase === 'feedback_correct' ? `
+                <div class="mt-4 p-5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 text-center animate-pop">
+                  <div class="inline-flex items-center gap-1.5 text-emerald-700 dark:text-emerald-400 font-extrabold text-lg mb-1">
+                    <i data-lucide="check-circle-2" class="w-6 h-6"></i> 正解！
+                  </div>
+                  <div class="text-base font-bold text-slate-800 dark:text-slate-200 mt-1">
+                    ${this.esc(word.en)} ＝ ${this.esc(word.ja)}
+                  </div>
+                  <button id="next-question-btn" class="mt-5 w-full py-3.5 px-6 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-base shadow-md shadow-emerald-500/20 flex items-center justify-center gap-2">
+                    <span>次の問題へ</span>
+                    <kbd class="hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-mono bg-emerald-500 rounded">Enter</kbd>
+                  </button>
+                </div>
+              ` : ''}
+
+              <!-- Phase 3: Wrong Feedback + Monoxer Mandatory Retype Reinforcement -->
+              ${session.phase === 'feedback_wrong' ? `
+                <div class="mt-4 p-5 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/60 animate-pop">
+                  <div class="flex items-center justify-center gap-1.5 text-rose-600 dark:text-rose-400 font-extrabold text-lg mb-3">
+                    <i data-lucide="x-circle" class="w-6 h-6"></i> 不正解…
+                  </div>
+
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-sm mb-4">
+                    <div class="p-3 rounded-xl bg-white/80 dark:bg-slate-900/80 border border-rose-200/70 dark:border-rose-900/60">
+                      <div class="text-[11px] font-bold text-slate-400">あなたの解答</div>
+                      <div class="font-bold text-rose-600 dark:text-rose-400 line-through mt-0.5 break-all">
+                        ${session.lastUserAnswer ? this.esc(session.lastUserAnswer) : '（未入力）'}
+                      </div>
+                    </div>
+                    <div class="p-3 rounded-xl bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-800">
+                      <div class="text-[11px] font-bold text-emerald-600 dark:text-emerald-400">正しい答え</div>
+                      <div class="font-extrabold text-slate-900 dark:text-white mt-0.5 break-all">
+                        ${this.esc(expectedAnswer)}
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Mandatory Retype Form to lock in muscle memory -->
+                  <form id="study-retype-form" class="space-y-3">
+                    <label class="block text-xs font-bold text-center text-rose-700 dark:text-rose-300">
+                      記憶定着のため、正しい答えを1回タイピングして次へ進みましょう
+                    </label>
+                    <input type="text" id="study-retype-input" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+                      placeholder="${this.esc(expectedAnswer.split(/[、,，/／・]/)[0].trim())}"
+                      class="w-full px-4 py-3 rounded-xl border-2 border-rose-300 dark:border-rose-700 bg-white dark:bg-slate-900 text-center text-base font-bold text-slate-900 dark:text-white focus:border-indigo-500 outline-none" />
+                    <button type="submit" class="w-full py-3 px-5 rounded-xl bg-slate-900 dark:bg-indigo-600 hover:bg-slate-800 dark:hover:bg-indigo-700 text-white font-bold text-sm">
+                      打ち直しを確認して次へ
+                    </button>
+                  </form>
+                </div>
+              ` : ''}
+            </div>
+          </div>
+        `;
+      }
+
+      bindStudyViewEvents() {
+        const session = this.studySession;
+        if (!session) return;
+
+        if (session.phase === 'question') {
+          const input = document.getElementById('study-answer-input');
+          const form = document.getElementById('study-question-form');
+          if (input) input.focus();
+          if (form) {
+            form.onsubmit = (e) => {
+              e.preventDefault();
+              this.submitStudyAnswer(input.value);
+            };
+          }
+        } else if (session.phase === 'feedback_correct') {
+          const nextBtn = document.getElementById('next-question-btn');
+          if (nextBtn) {
+            nextBtn.focus();
+            nextBtn.onclick = () => this.advanceStudyQueue();
+          }
+        } else if (session.phase === 'feedback_wrong') {
+          const retypeInput = document.getElementById('study-retype-input');
+          const retypeForm = document.getElementById('study-retype-form');
+          if (retypeInput) retypeInput.focus();
+          if (retypeForm) {
+            retypeForm.onsubmit = (e) => {
+              e.preventDefault();
+              this.submitStudyAnswer(retypeInput.value);
+            };
+          }
+        }
+      }
     }
 
-    function escapeHtml(str) {
-      return String(str)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;");
-    }
+    // Initialize Application
+    const app = new MemoWriteApp();
   </script>
 </body>
 </html>
