@@ -99,6 +99,12 @@
 
       <!-- Header Actions -->
       <div class="flex items-center gap-2 sm:gap-3">
+        <!-- Cloud Sync Button -->
+        <button onclick="app.openCloudSyncModal()" class="inline-flex items-center gap-1.5 px-3 py-2 text-xs sm:text-sm font-medium rounded-xl text-indigo-600 dark:text-indigo-400 bg-indigo-50/70 dark:bg-indigo-950/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors" title="別デバイスとクラウド同期">
+          <i id="cloud-status-icon" data-lucide="cloud" class="w-4 h-4"></i>
+          <span id="cloud-status-label" class="hidden sm:inline">クラウド同期</span>
+        </button>
+
         <!-- Backup / Restore Menu Button -->
         <button onclick="app.openBackupModal()" class="inline-flex items-center gap-1.5 px-3 py-2 text-xs sm:text-sm font-medium rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" title="データのバックアップ・復元">
           <i data-lucide="database" class="w-4 h-4"></i>
@@ -129,10 +135,11 @@
   <script>
     /**
      * MemoWrite - Monoxer-inspired Typing Vocabulary App
-     * Data Structure & State Management
+     * Data Structure, localStorage Persistence & Firebase Realtime Database Cloud Sync
      */
     const STORAGE_KEY = 'memowrite_v1_data';
     const THEME_KEY = 'memowrite_v1_theme';
+    const SYNC_CONFIG_KEY = 'memowrite_v1_sync_config';
 
     // Default sample decks for immediate testing
     const DEFAULT_DATA = {
@@ -174,6 +181,11 @@
     class MemoWriteApp {
       constructor() {
         this.state = this.loadState();
+        this.syncConfig = this.loadSyncConfig();
+        this.rtdbListeners = [];
+        this.isApplyingRemote = false;
+        this.autoSyncTimer = null;
+
         this.view = 'home'; // 'home' | 'book' | 'study'
         this.activeBookId = null;
         this.searchQuery = '';
@@ -181,6 +193,11 @@
 
         this.initTheme();
         this.render();
+        this.updateCloudStatusUI();
+
+        if (this.syncConfig.enabled && this.syncConfig.apiKey && this.syncConfig.databaseURL && this.syncConfig.roomCode) {
+          this.initFirebaseRealtimeSync(false);
+        }
       }
 
       // Load from localStorage or initialize default
@@ -204,6 +221,404 @@
           localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
         } catch (e) {
           this.showToast('保存に失敗しました（ストレージ容量を確認してください）', 'error');
+        }
+        if (!this.isApplyingRemote && this.syncConfig && this.syncConfig.enabled && this.syncConfig.autoSync) {
+          this.scheduleAutoPush();
+        }
+      }
+
+      // ==========================================
+      // FIREBASE REALTIME DATABASE CLOUD SYNC
+      // ==========================================
+      loadSyncConfig() {
+        try {
+          const raw = localStorage.getItem(SYNC_CONFIG_KEY);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            return {
+              enabled: Boolean(parsed.enabled),
+              autoSync: parsed.autoSync !== false,
+              apiKey: parsed.apiKey || '',
+              authDomain: parsed.authDomain || '',
+              databaseURL: parsed.databaseURL || '',
+              projectId: parsed.projectId || '',
+              appId: parsed.appId || '',
+              roomCode: parsed.roomCode || ''
+            };
+          }
+        } catch (e) {
+          console.error('Failed to load sync config:', e);
+        }
+        return {
+          enabled: false,
+          autoSync: true,
+          apiKey: '',
+          authDomain: '',
+          databaseURL: '',
+          projectId: '',
+          appId: '',
+          roomCode: ''
+        };
+      }
+
+      saveSyncConfig() {
+        try {
+          localStorage.setItem(SYNC_CONFIG_KEY, JSON.stringify(this.syncConfig));
+        } catch (e) {
+          console.error('Failed to save sync config:', e);
+        }
+      }
+
+      sanitizeRoomCode(code) {
+        return String(code || '').trim().replace(/[^a-zA-Z0-9_-]/g, '');
+      }
+
+      getRoomPath() {
+        const cleanRoom = this.sanitizeRoomCode(this.syncConfig.roomCode);
+        return `memowrite_rooms/${cleanRoom}/state`;
+      }
+
+      updateCloudStatusUI(statusOverride = null) {
+        const iconEl = document.getElementById('cloud-status-icon');
+        const labelEl = document.getElementById('cloud-status-label');
+        if (!iconEl || !labelEl) return;
+
+        if (!this.syncConfig || !this.syncConfig.enabled) {
+          labelEl.textContent = 'クラウド同期';
+          iconEl.setAttribute('data-lucide', 'cloud');
+          lucide.createIcons({ root: iconEl.parentElement });
+          return;
+        }
+
+        if (statusOverride === 'syncing') {
+          labelEl.textContent = '同期中...';
+          iconEl.setAttribute('data-lucide', 'refresh-cw');
+        } else if (statusOverride === 'error') {
+          labelEl.textContent = '同期エラー';
+          iconEl.setAttribute('data-lucide', 'cloud-off');
+        } else {
+          labelEl.textContent = `同期中 (${this.sanitizeRoomCode(this.syncConfig.roomCode)})`;
+          iconEl.setAttribute('data-lucide', 'cloud-check');
+        }
+        lucide.createIcons({ root: iconEl.parentElement });
+      }
+
+      async loadFirebaseSDK() {
+        if (window.__memoFirebaseRTDB) {
+          return window.__memoFirebaseRTDB;
+        }
+        const [{ initializeApp, getApps, getApp }, rtdb] = await Promise.all([
+          import('https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js'),
+          import('https://www.gstatic.com/firebasejs/11.6.1/firebase-database.js')
+        ]);
+        window.__memoFirebaseRTDB = { initializeApp, getApps, getApp, ...rtdb };
+        return window.__memoFirebaseRTDB;
+      }
+
+      async getDatabaseInstance() {
+        const sdk = await this.loadFirebaseSDK();
+        const cfg = this.syncConfig;
+        if (!cfg.apiKey || !cfg.databaseURL) {
+          throw new Error('Firebaseの API Key と Database URL を入力してください');
+        }
+        const firebaseConfig = {
+          apiKey: cfg.apiKey.trim(),
+          databaseURL: cfg.databaseURL.trim()
+        };
+        if (cfg.authDomain.trim()) firebaseConfig.authDomain = cfg.authDomain.trim();
+        if (cfg.projectId.trim()) firebaseConfig.projectId = cfg.projectId.trim();
+        if (cfg.appId.trim()) firebaseConfig.appId = cfg.appId.trim();
+
+        const appName = `memowrite_sync_${this.sanitizeRoomCode(cfg.roomCode) || 'default'}`;
+        const existing = sdk.getApps().find(a => a.name === appName);
+        const fbApp = existing || sdk.initializeApp(firebaseConfig, appName);
+        return { sdk, db: sdk.getDatabase(fbApp) };
+      }
+
+      detachRealtimeListeners() {
+        this.rtdbListeners.forEach(unsub => {
+          try {
+            if (typeof unsub === 'function') unsub();
+          } catch (e) {
+            // ignore
+          }
+        });
+        this.rtdbListeners = [];
+      }
+
+      async initFirebaseRealtimeSync(showSuccessToast = false) {
+        const cleanRoom = this.sanitizeRoomCode(this.syncConfig.roomCode);
+        if (!cleanRoom) {
+          this.showToast('同期ルームコード（半角英数字・_-）を入力してください', 'warning');
+          return;
+        }
+        this.syncConfig.roomCode = cleanRoom;
+        this.syncConfig.enabled = true;
+        this.saveSyncConfig();
+        this.detachRealtimeListeners();
+        this.updateCloudStatusUI('syncing');
+
+        try {
+          const { sdk, db } = await this.getDatabaseInstance();
+          const dataRef = sdk.ref(db, this.getRoomPath());
+
+          // Check initial snapshot
+          const snap = await sdk.get(dataRef);
+          if (snap.exists()) {
+            const remoteVal = snap.val();
+            if (remoteVal && Array.isArray(remoteVal.books)) {
+              this.applyRemoteState(remoteVal, false);
+            }
+          } else {
+            // Initialize room with current local state if empty
+            await sdk.set(dataRef, {
+              ...this.state,
+              syncedAt: Date.now()
+            });
+          }
+
+          // Subscribe to ongoing remote updates from other devices
+          const unsubscribe = sdk.onValue(dataRef, (snapshot) => {
+            if (!snapshot.exists()) return;
+            const remoteVal = snapshot.val();
+            if (!remoteVal || !Array.isArray(remoteVal.books)) return;
+            const remoteSerialized = JSON.stringify(remoteVal.books);
+            const localSerialized = JSON.stringify(this.state.books);
+            if (remoteSerialized !== localSerialized) {
+              this.applyRemoteState(remoteVal, true);
+            }
+          }, (err) => {
+            console.error('RTDB listener error:', err);
+            this.updateCloudStatusUI('error');
+            this.showToast('クラウド受信中にエラーが発生しました（RTDBルール等を確認してください）', 'error');
+          });
+
+          this.rtdbListeners.push(unsubscribe);
+          this.updateCloudStatusUI('connected');
+          if (showSuccessToast) {
+            this.showToast(`ルーム「${cleanRoom}」とクラウド同期を開始しました`, 'success');
+          }
+        } catch (err) {
+          console.error('Firebase sync init error:', err);
+          this.updateCloudStatusUI('error');
+          this.showToast(`同期接続に失敗しました: ${err.message || err}`, 'error');
+        }
+      }
+
+      applyRemoteState(remoteVal, notify = true) {
+        this.isApplyingRemote = true;
+        try {
+          const normalizedBooks = remoteVal.books.map(b => ({
+            ...b,
+            words: Array.isArray(b.words) ? b.words : []
+          }));
+          this.state = { books: normalizedBooks };
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
+          if (this.view !== 'study') {
+            this.render();
+          }
+          if (notify) {
+            this.showToast('別デバイスからの最新データに同期しました', 'info');
+          }
+        } finally {
+          this.isApplyingRemote = false;
+        }
+      }
+
+      scheduleAutoPush() {
+        if (this.autoSyncTimer) {
+          clearTimeout(this.autoSyncTimer);
+        }
+        this.autoSyncTimer = setTimeout(() => {
+          this.pushToCloud(false);
+        }, 600);
+      }
+
+      async pushToCloud(showToastOnSuccess = true) {
+        if (!this.syncConfig.enabled) return;
+        const cleanRoom = this.sanitizeRoomCode(this.syncConfig.roomCode);
+        if (!cleanRoom) return;
+
+        this.updateCloudStatusUI('syncing');
+        try {
+          const { sdk, db } = await this.getDatabaseInstance();
+          const dataRef = sdk.ref(db, this.getRoomPath());
+          await sdk.set(dataRef, {
+            ...this.state,
+            syncedAt: Date.now()
+          });
+          this.updateCloudStatusUI('connected');
+          if (showToastOnSuccess) {
+            this.showToast('現在の学習データをクラウドへ送信しました', 'success');
+          }
+        } catch (err) {
+          console.error('Cloud push error:', err);
+          this.updateCloudStatusUI('error');
+          if (showToastOnSuccess) {
+            this.showToast(`クラウド送信に失敗しました: ${err.message || err}`, 'error');
+          }
+        }
+      }
+
+      async pullFromCloud() {
+        this.updateCloudStatusUI('syncing');
+        try {
+          const { sdk, db } = await this.getDatabaseInstance();
+          const dataRef = sdk.ref(db, this.getRoomPath());
+          const snap = await sdk.get(dataRef);
+          if (snap.exists() && Array.isArray(snap.val().books)) {
+            this.applyRemoteState(snap.val(), false);
+            this.updateCloudStatusUI('connected');
+            this.showToast('クラウドから最新データを取得しました', 'success');
+          } else {
+            this.updateCloudStatusUI('connected');
+            this.showToast('指定ルームにクラウドデータが見つかりませんでした', 'warning');
+          }
+        } catch (err) {
+          console.error('Cloud pull error:', err);
+          this.updateCloudStatusUI('error');
+          this.showToast(`クラウド取得に失敗しました: ${err.message || err}`, 'error');
+        }
+      }
+
+      disableCloudSync() {
+        this.detachRealtimeListeners();
+        if (this.autoSyncTimer) {
+          clearTimeout(this.autoSyncTimer);
+          this.autoSyncTimer = null;
+        }
+        this.syncConfig.enabled = false;
+        this.saveSyncConfig();
+        this.updateCloudStatusUI();
+        this.showToast('クラウド同期を停止しました（ローカル保存は継続されます）', 'info');
+      }
+
+      openCloudSyncModal() {
+        const cfg = this.syncConfig || {};
+        this.openModal(`
+          <div class="p-6">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <i data-lucide="cloud" class="w-5 h-5 text-indigo-500"></i>
+                別デバイス間クラウド同期（Firebase）
+              </h3>
+              <button onclick="app.closeModal()" class="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
+                <i data-lucide="x" class="w-5 h-5"></i>
+              </button>
+            </div>
+
+            <p class="text-xs text-slate-600 dark:text-slate-400 mb-4 leading-relaxed">
+              PC・Chromebook・スマホで同じ<strong>同期ルームコード</strong>とFirebase Realtime Database設定を使うと、ブック・単語・記憶度がリアルタイムで同期されます。未設定やオフライン時もブラウザに自動保存されます。
+            </p>
+
+            <form id="cloud-sync-form" class="space-y-3.5">
+              <div>
+                <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">同期ルームコード（半角英数字・_-） <span class="text-rose-500">*</span></label>
+                <input type="text" id="sync-room-code" required value="${this.esc(cfg.roomCode || '')}" placeholder="例: my-vocab-room-2026"
+                  class="w-full px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-mono text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none" />
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">API Key <span class="text-rose-500">*</span></label>
+                  <input type="text" id="sync-api-key" required value="${this.esc(cfg.apiKey || '')}" placeholder="AIzaSy..."
+                    class="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-mono text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none" />
+                </div>
+                <div>
+                  <label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">Database URL <span class="text-rose-500">*</span></label>
+                  <input type="url" id="sync-db-url" required value="${this.esc(cfg.databaseURL || '')}" placeholder="https://xxx-default-rtdb.firebaseio.com"
+                    class="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-mono text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none" />
+                </div>
+              </div>
+
+              <details class="rounded-xl border border-slate-200 dark:border-slate-800 p-3 bg-slate-50/70 dark:bg-slate-800/40">
+                <summary class="text-xs font-bold text-slate-600 dark:text-slate-300 cursor-pointer select-none">その他のFirebase設定項目（任意）</summary>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 mt-3">
+                  <div>
+                    <label class="block text-[11px] text-slate-500 dark:text-slate-400 mb-1">Project ID</label>
+                    <input type="text" id="sync-project-id" value="${this.esc(cfg.projectId || '')}" placeholder="my-project"
+                      class="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-mono outline-none" />
+                  </div>
+                  <div>
+                    <label class="block text-[11px] text-slate-500 dark:text-slate-400 mb-1">Auth Domain</label>
+                    <input type="text" id="sync-auth-domain" value="${this.esc(cfg.authDomain || '')}" placeholder="my-project.firebaseapp.com"
+                      class="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-mono outline-none" />
+                  </div>
+                  <div>
+                    <label class="block text-[11px] text-slate-500 dark:text-slate-400 mb-1">App ID</label>
+                    <input type="text" id="sync-app-id" value="${this.esc(cfg.appId || '')}" placeholder="1:123:web:abc"
+                      class="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-mono outline-none" />
+                  </div>
+                </div>
+              </details>
+
+              <label class="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer pt-1">
+                <input type="checkbox" id="sync-auto-push" class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" ${cfg.autoSync !== false ? 'checked' : ''} />
+                <span>単語追加・編集・学習完了時に自動でクラウドへ送信する</span>
+              </label>
+
+              <div class="pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
+                <div class="flex items-center gap-2">
+                  <button type="button" id="sync-pull-btn" class="px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold flex items-center gap-1.5">
+                    <i data-lucide="cloud-download" class="w-3.5 h-3.5"></i> 今すぐ取得
+                  </button>
+                  <button type="button" id="sync-push-btn" class="px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold flex items-center gap-1.5">
+                    <i data-lucide="cloud-upload" class="w-3.5 h-3.5"></i> 今すぐ送信
+                  </button>
+                  ${cfg.enabled ? `
+                    <button type="button" id="sync-stop-btn" class="px-3 py-2 rounded-xl text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-xs font-bold">
+                      同期停止
+                    </button>
+                  ` : ''}
+                </div>
+
+                <button type="submit" class="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs sm:text-sm font-bold shadow-sm">
+                  保存して同期を開始
+                </button>
+              </div>
+            </form>
+          </div>
+        `);
+
+        const readFormIntoConfig = () => {
+          this.syncConfig = {
+            ...this.syncConfig,
+            roomCode: this.sanitizeRoomCode(document.getElementById('sync-room-code').value),
+            apiKey: document.getElementById('sync-api-key').value.trim(),
+            databaseURL: document.getElementById('sync-db-url').value.trim(),
+            projectId: document.getElementById('sync-project-id').value.trim(),
+            authDomain: document.getElementById('sync-auth-domain').value.trim(),
+            appId: document.getElementById('sync-app-id').value.trim(),
+            autoSync: document.getElementById('sync-auto-push').checked
+          };
+          this.saveSyncConfig();
+        };
+
+        document.getElementById('cloud-sync-form').onsubmit = async (e) => {
+          e.preventDefault();
+          readFormIntoConfig();
+          this.closeModal();
+          await this.initFirebaseRealtimeSync(true);
+        };
+
+        document.getElementById('sync-pull-btn').onclick = async () => {
+          readFormIntoConfig();
+          await this.pullFromCloud();
+        };
+
+        document.getElementById('sync-push-btn').onclick = async () => {
+          readFormIntoConfig();
+          this.syncConfig.enabled = true;
+          this.saveSyncConfig();
+          await this.pushToCloud(true);
+        };
+
+        const stopBtn = document.getElementById('sync-stop-btn');
+        if (stopBtn) {
+          stopBtn.onclick = () => {
+            this.disableCloudSync();
+            this.closeModal();
+          };
         }
       }
 
